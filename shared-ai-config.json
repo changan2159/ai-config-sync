@@ -1,0 +1,58 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "type": "stdio",
+      "command": "/home/admin101/.local/bin/uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "serena": {
+      "type": "stdio",
+      "command": "/home/admin101/.codex/mcp/serena-manager/run-serena-manager.sh"
+    },
+    "node_repl": {
+      "type": "stdio",
+      "command": "/home/admin101/.codex/mcp/node-repl-linux/run-node-repl-linux.sh",
+      "toolTimeoutSec": 120
+    },
+    "codegraph": {
+      "type": "stdio",
+      "command": "/home/admin101/.codex/mcp/codegraph/codegraph-codex-wrapper.sh",
+      "args": ["serve", "--mcp"],
+      "toolTimeoutSec": 120
+    }
+  },
+  "skillRoots": [
+    {
+      "path": "/home/admin101/.codex/skills",
+      "prefix": "",
+      "exclude": [".system"]
+    },
+    {
+      "path": "/home/admin101/.codex/skills/.system",
+      "prefix": ""
+    },
+    {
+      "path": "/home/admin101/.codex/plugins/cache/openai-curated/build-web-apps/43313cc9/skills",
+      "prefix": "build-web-apps:"
+    },
+    {
+      "path": "/home/admin101/.codex/plugins/cache/personal/product-design/0.1.41/skills",
+      "prefix": "product-design:"
+    }
+  ],
+  "include": ["*"],
+  "targets": {
+    "codex": {
+      "configPath": "/home/admin101/.codex/config.toml",
+      "skillsDir": "/home/admin101/.codex/skills-shared"
+    },
+    "claude": {
+      "configPath": "/home/admin101/.claude.json",
+      "skillsDir": "/home/admin101/.claude/skills"
+    },
+    "opencode": {
+      "configPath": "/home/admin101/.config/opencode/opencode.jsonc",
+      "agentPrefix": "skill-"
+    }
+  }
+}
