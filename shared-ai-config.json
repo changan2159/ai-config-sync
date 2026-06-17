@@ -30,14 +30,6 @@
     {
       "path": "/home/admin101/.codex/skills/.system",
       "prefix": ""
-    },
-    {
-      "path": "/home/admin101/.codex/plugins/cache/openai-curated/build-web-apps/43313cc9/skills",
-      "prefix": "build-web-apps:"
-    },
-    {
-      "path": "/home/admin101/.codex/plugins/cache/personal/product-design/0.1.41/skills",
-      "prefix": "product-design:"
     }
   ],
   "include": ["*"],

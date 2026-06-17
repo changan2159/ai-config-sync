@@ -18,6 +18,13 @@ Shared source config:
 /home/admin101/projects/2026/ai-config-sync/shared-ai-config.json
 ```
 
+Shared skill sources:
+
+```text
+/home/admin101/.codex/skills
+/home/admin101/.codex/skills/.system
+```
+
 ## Commands
 
 Sync once:
@@ -58,5 +65,6 @@ Add or remove one MCP across all three clients:
 - Codex MCP config is merged into `/home/admin101/.codex/config.toml`
 - Claude MCP config is merged into `/home/admin101/.claude.json`
 - OpenCode MCP config is merged into `/home/admin101/.config/opencode/opencode.jsonc`
-- Codex and Claude skills are symlinked to the shared source skill folders
+- Plugin cache skills are not synced by default
+- Codex and Claude skills are symlinked from the two shared core skill roots above
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
