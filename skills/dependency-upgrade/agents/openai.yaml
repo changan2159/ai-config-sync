@@ -1,0 +1,7 @@
+interface:
+  display_name: "Dependency Upgrade"
+  short_description: "Plan and verify dependency upgrades safely"
+  default_prompt: "Use $dependency-upgrade to plan, execute, and verify dependency, framework, SDK, package, or lockfile upgrades safely."
+
+policy:
+  allow_implicit_invocation: true

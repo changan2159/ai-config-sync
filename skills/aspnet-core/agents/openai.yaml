@@ -1,0 +1,8 @@
+interface:
+  display_name: "ASP.NET Core"
+  short_description: "Build and review ASP.NET Core web apps"
+  icon_large: "./assets/dotnet-logo.png"
+  default_prompt: "Use $aspnet-core to build, review, or refactor an ASP.NET Core application with current framework guidance."
+
+policy:
+  allow_implicit_invocation: true

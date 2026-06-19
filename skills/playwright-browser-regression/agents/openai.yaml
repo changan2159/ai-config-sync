@@ -1,0 +1,7 @@
+interface:
+  display_name: "Playwright Browser Regression"
+  short_description: "Run browser regression with bundled Playwright Chromium"
+  default_prompt: "Use $playwright-browser-regression to run this repo's browser regression with Playwright's bundled Chromium, preferring existing project scripts over inventing a new harness."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release Workflow"
+  short_description: "Prepare changelogs, versions, and releases"
+  default_prompt: "Use $release-workflow to prepare changelogs, release notes, version bumps, tags, and package release checks."
+
+policy:
+  allow_implicit_invocation: true

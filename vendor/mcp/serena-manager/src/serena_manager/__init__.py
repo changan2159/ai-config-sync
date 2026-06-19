@@ -1,0 +1,2 @@
+"""Serena manager package."""
+

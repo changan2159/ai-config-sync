@@ -1,0 +1,7 @@
+interface:
+  display_name: "Project Orchestration"
+  short_description: "Route substantial work into the right workflow"
+  default_prompt: "Use $project-orchestration to choose the right workflow for a substantial task, including quick path vs phase path, verification depth, and handoff rules."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,10 +1,13 @@
 import json
+import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import ai_config_sync.cli as cli_module
+import ai_config_sync.mcp_updates as mcp_updates_module
 import ai_config_sync.sync as sync_module
 from ai_config_sync.sync import (
     McpServerConfig,
@@ -257,6 +260,92 @@ def test_resolve_skills_uses_all_roots_with_prefixes(tmp_path: Path) -> None:
     config = load_sync_config(config_path)
     names = [skill.name for skill in resolve_skills(config.skill_roots, config.include)]
     assert names == ["alpha", "x:beta"]
+
+
+def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    config_path = repo_root / "shared-ai-config.json"
+    payload = {
+        "mcpServers": {
+            "demo": {
+                "type": "stdio",
+                "command": "${REPO_ROOT}/tools/mcp/demo.sh",
+                "cwd": "${HOME}/workspace",
+                "env": {"DATA_ROOT": "${REPO_ROOT}/data"},
+            }
+        },
+        "skillRoots": [
+            {
+                "path": "${REPO_ROOT}/skills",
+                "exclude": [".system"],
+            }
+        ],
+        "include": ["*"],
+        "globalPromptPath": "${REPO_ROOT}/shared-global-prompt.md",
+        "targets": {
+            "codex": {
+                "configPath": "${HOME}/.codex/config.toml",
+                "skillsDir": "${HOME}/.codex/skills-shared",
+                "globalPromptPath": "${HOME}/.codex/AGENTS.md",
+                "globalPromptAppendPath": "${REPO_ROOT}/codex-global-prompt.md",
+            }
+        },
+    }
+    config_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    config = load_sync_config(config_path)
+
+    assert config.skill_roots[0].path == repo_root / "skills"
+    assert config.mcp_servers[0].command == str(repo_root / "tools" / "mcp" / "demo.sh")
+    assert config.mcp_servers[0].cwd == str(home / "workspace")
+    assert config.mcp_servers[0].env == {"DATA_ROOT": str(repo_root / "data")}
+    assert config.global_prompt_path == repo_root / "shared-global-prompt.md"
+    assert config.codex is not None
+    assert config.codex.config_path == home / ".codex" / "config.toml"
+    assert config.codex.global_prompt_append_path == repo_root / "codex-global-prompt.md"
+
+
+def test_resolve_skills_uses_repo_local_roots_only(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_skills = repo_root / "skills"
+    repo_skills.mkdir(parents=True)
+    write_skill(repo_skills, "alpha", "Alpha")
+    config_path = repo_root / "shared-ai-config.json"
+    write_config(
+        config_path,
+        skill_roots=[
+            {
+                "path": "${REPO_ROOT}/skills",
+            }
+        ],
+        targets={},
+        servers={},
+    )
+
+    config = load_sync_config(config_path)
+    names = [skill.name for skill in resolve_skills(config.skill_roots, config.include)]
+
+    assert names == ["alpha"]
+
+
+def test_vendored_serena_manager_defaults_to_repo_local_serena_wrapper(tmp_path: Path) -> None:
+    module_path = Path(__file__).resolve().parents[1] / "vendor" / "mcp" / "serena-manager" / "src" / "serena_manager" / "config.py"
+    spec = importlib.util.spec_from_file_location("vendored_serena_manager_config", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    manager_root = tmp_path / "repo" / "vendor" / "mcp" / "serena-manager"
+    manager_root.mkdir(parents=True)
+    config = module.ManagerConfig.default(manager_root)
+
+    assert config.serena_command == str(tmp_path / "repo" / "tools" / "mcp" / "serena-agent.sh")
+    assert config.serena_args == ("start-mcp-server",)
 
 
 def test_sync_clients_skips_disabled_servers_for_all_targets(tmp_path: Path) -> None:
@@ -1030,6 +1119,404 @@ def test_cli_run_config_update_rolls_back_target_writes_when_sync_fails(tmp_path
 
     assert '"demo"' not in config_path.read_text(encoding="utf-8")
     assert target_path.read_text(encoding="utf-8") == original_target
+
+
+def test_update_codegraph_pins_exact_version_and_refreshes_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    vendor_dir = repo_root / "vendor" / "mcp" / "codegraph"
+    vendor_dir.mkdir(parents=True)
+    package_path = vendor_dir / "package.json"
+    (vendor_dir / "package-lock.json").write_text("{\"lockfileVersion\":3}\n", encoding="utf-8")
+    package_path.write_text(
+        json.dumps({"dependencies": {"@colbymchenry/codegraph": "^1.0.1"}}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    calls: list[tuple[list[str], Path | None]] = []
+    toolchain = {"uv": "/toolchain/uv", "npm": "/toolchain/node/bin/npm", "node": "/toolchain/node/bin/node"}
+
+    monkeypatch.setattr(mcp_updates_module, "_latest_npm_version", lambda _name: "1.2.3")
+    monkeypatch.setattr(mcp_updates_module, "_prepare_update_toolchain", lambda _repo_root: toolchain)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {"codegraph": {"prepared": True}}})
+
+    def fake_run_command(
+        args: list[str],
+        cwd: Path | None = None,
+        env_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, cwd))
+        assert env_overrides is not None
+        assert env_overrides["PATH"].split(":")[0] == str(Path(toolchain["node"]).parent)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mcp_updates_module, "_run_command", fake_run_command)
+
+    result = mcp_updates_module.update_codegraph(repo_root)
+
+    payload = json.loads(package_path.read_text(encoding="utf-8"))
+    assert payload["dependencies"]["@colbymchenry/codegraph"] == "1.2.3"
+    assert len(calls) == 1
+    assert calls[0][0] == [toolchain["npm"], "install", "--package-lock-only", "--ignore-scripts"]
+    assert calls[0][1] is not None
+    assert calls[0][1].name == "codegraph"
+    assert result["name"] == "codegraph"
+    assert result["version"] == "1.2.3"
+    assert result["previous_version"] == "^1.0.1"
+
+
+def test_update_serena_agent_refreshes_vendored_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    vendor_dir = repo_root / "vendor" / "mcp" / "serena-agent"
+    (vendor_dir / "pylib" / "serena").mkdir(parents=True)
+    (vendor_dir / "pylib" / "serena" / "__init__.py").write_text("old\n", encoding="utf-8")
+    (vendor_dir / "upstream-dist-info").mkdir(parents=True)
+    (vendor_dir / "upstream-dist-info" / "METADATA").write_text("old\n", encoding="utf-8")
+
+    fake_site_packages = tmp_path / "fake-site-packages"
+    for package_name in ("serena", "interprompt", "solidlsp"):
+        package_dir = fake_site_packages / package_name
+        package_dir.mkdir(parents=True)
+        (package_dir / "__init__.py").write_text(f"{package_name}\n", encoding="utf-8")
+    dist_info_dir = fake_site_packages / "serena_agent-9.9.9.dist-info"
+    dist_info_dir.mkdir()
+    (dist_info_dir / "METADATA").write_text("Version: 9.9.9\n", encoding="utf-8")
+    (dist_info_dir / "entry_points.txt").write_text("[console_scripts]\n", encoding="utf-8")
+    toolchain = {"uv": "/toolchain/uv", "npm": "/toolchain/node/bin/npm", "node": "/toolchain/node/bin/node"}
+
+    def fake_run_command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        del cwd
+        if args[:2] == [toolchain["uv"], "venv"]:
+            venv_dir = Path(args[2])
+            (venv_dir / "bin").mkdir(parents=True)
+            (venv_dir / "bin" / "python").write_text("", encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:4] == [toolchain["uv"], "pip", "freeze", "--python"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="\n".join(
+                    [
+                        "serena-agent==9.9.9",
+                        "interprompt==1.0.0",
+                        "solidlsp==2.0.0",
+                        "httpx==0.28.1",
+                    ]
+                )
+                + "\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mcp_updates_module, "_latest_pypi_version", lambda _name: "9.9.9")
+    monkeypatch.setattr(mcp_updates_module, "_prepare_update_toolchain", lambda _repo_root: toolchain)
+    monkeypatch.setattr(mcp_updates_module, "_run_command", fake_run_command)
+    monkeypatch.setattr(mcp_updates_module, "_site_packages", lambda _python_bin: fake_site_packages)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {"serena-agent": {"prepared": True}}})
+
+    result = mcp_updates_module.update_serena_agent(repo_root)
+
+    assert (vendor_dir / "pylib" / "serena" / "__init__.py").read_text(encoding="utf-8") == "serena\n"
+    assert (vendor_dir / "pylib" / "interprompt" / "__init__.py").read_text(encoding="utf-8") == "interprompt\n"
+    assert (vendor_dir / "pylib" / "solidlsp" / "__init__.py").read_text(encoding="utf-8") == "solidlsp\n"
+    assert (vendor_dir / "upstream-dist-info" / "METADATA").read_text(encoding="utf-8") == "Version: 9.9.9\n"
+    assert (vendor_dir / "requirements.lock").read_text(encoding="utf-8") == "httpx==0.28.1\n"
+    assert result["name"] == "serena-agent"
+    assert result["version"] == "9.9.9"
+
+
+def test_update_fetch_refreshes_requirements_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    vendor_dir = repo_root / "vendor" / "mcp" / "fetch"
+    vendor_dir.mkdir(parents=True)
+    (vendor_dir / "requirements.lock").write_text("before\n", encoding="utf-8")
+    toolchain = {"uv": "/toolchain/uv", "npm": "/toolchain/node/bin/npm", "node": "/toolchain/node/bin/node"}
+
+    def fake_run_command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        del cwd
+        if args[:2] == [toolchain["uv"], "venv"]:
+            venv_dir = Path(args[2])
+            (venv_dir / "bin").mkdir(parents=True)
+            (venv_dir / "bin" / "python").write_text("", encoding="utf-8")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:4] == [toolchain["uv"], "pip", "freeze", "--python"]:
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout="httpx==0.28.1\nmcp-server-fetch==2026.6.4\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mcp_updates_module, "_latest_pypi_version", lambda _name: "2026.6.4")
+    monkeypatch.setattr(mcp_updates_module, "_prepare_update_toolchain", lambda _repo_root: toolchain)
+    monkeypatch.setattr(mcp_updates_module, "_run_command", fake_run_command)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {"fetch": {"prepared": True}}})
+
+    result = mcp_updates_module.update_fetch(repo_root)
+
+    assert (vendor_dir / "requirements.lock").read_text(encoding="utf-8") == "httpx==0.28.1\nmcp-server-fetch==2026.6.4\n"
+    assert result["name"] == "fetch"
+    assert result["version"] == "2026.6.4"
+    assert result["package"] == "mcp-server-fetch"
+
+
+def test_update_node_repl_linux_updates_pinned_dependencies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    vendor_dir = repo_root / "vendor" / "mcp" / "node-repl-linux"
+    vendor_dir.mkdir(parents=True)
+    package_path = vendor_dir / "package.json"
+    (vendor_dir / "package-lock.json").write_text("{\"lockfileVersion\":3}\n", encoding="utf-8")
+    package_path.write_text(
+        json.dumps(
+            {
+                "dependencies": {
+                    "@modelcontextprotocol/sdk": "1.29.0",
+                    "zod": "4.4.3",
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls: list[tuple[list[str], Path | None]] = []
+    toolchain = {"uv": "/toolchain/uv", "npm": "/toolchain/node/bin/npm", "node": "/toolchain/node/bin/node"}
+
+    def fake_latest(name: str) -> str:
+        return {
+            "@modelcontextprotocol/sdk": "1.31.0",
+            "zod": "4.5.0",
+        }[name]
+
+    def fake_run_command(
+        args: list[str],
+        cwd: Path | None = None,
+        env_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((args, cwd))
+        assert env_overrides is not None
+        assert env_overrides["PATH"].split(":")[0] == str(Path(toolchain["node"]).parent)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mcp_updates_module, "_latest_npm_version", fake_latest)
+    monkeypatch.setattr(mcp_updates_module, "_prepare_update_toolchain", lambda _repo_root: toolchain)
+    monkeypatch.setattr(mcp_updates_module, "_run_command", fake_run_command)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {"node-repl-linux": {"prepared": True}}})
+
+    result = mcp_updates_module.update_node_repl_linux(repo_root)
+
+    payload = json.loads(package_path.read_text(encoding="utf-8"))
+    assert payload["dependencies"]["@modelcontextprotocol/sdk"] == "1.31.0"
+    assert payload["dependencies"]["zod"] == "4.5.0"
+    assert len(calls) == 1
+    assert calls[0][0] == [toolchain["npm"], "install", "--package-lock-only", "--ignore-scripts"]
+    assert calls[0][1] is not None
+    assert calls[0][1].name == "node-repl-linux"
+    assert result["name"] == "node-repl-linux"
+    assert result["dependencies"] == {
+        "@modelcontextprotocol/sdk": {"from": "1.29.0", "to": "1.31.0"},
+        "zod": {"from": "4.4.3", "to": "4.5.0"},
+    }
+
+
+def test_update_all_mcp_skips_repo_local_serena_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    calls: list[tuple[str, object]] = []
+    serena_vendor = repo_root / "vendor" / "mcp" / "serena-agent"
+    fetch_vendor = repo_root / "vendor" / "mcp" / "fetch"
+    codegraph_vendor = repo_root / "vendor" / "mcp" / "codegraph"
+    node_repl_vendor = repo_root / "vendor" / "mcp" / "node-repl-linux"
+    (serena_vendor / "pylib").mkdir(parents=True)
+    (serena_vendor / "upstream-dist-info").mkdir(parents=True)
+    (serena_vendor / "requirements.lock").write_text("lock\n", encoding="utf-8")
+    fetch_vendor.mkdir(parents=True)
+    (fetch_vendor / "requirements.lock").write_text("lock\n", encoding="utf-8")
+    codegraph_vendor.mkdir(parents=True)
+    (codegraph_vendor / "package.json").write_text("{}\n", encoding="utf-8")
+    (codegraph_vendor / "package-lock.json").write_text("{}\n", encoding="utf-8")
+    node_repl_vendor.mkdir(parents=True)
+    (node_repl_vendor / "package.json").write_text("{}\n", encoding="utf-8")
+    (node_repl_vendor / "package-lock.json").write_text("{}\n", encoding="utf-8")
+
+    def fake_serena_agent(root: Path, version: str | None = None) -> dict[str, object]:
+        calls.append(("serena-agent", version))
+        return {"name": "serena-agent", "version": version or "latest"}
+
+    def fake_codegraph(root: Path, version: str | None = None) -> dict[str, object]:
+        calls.append(("codegraph", version))
+        return {"name": "codegraph", "version": version or "latest"}
+
+    def fake_fetch(root: Path, version: str | None = None) -> dict[str, object]:
+        calls.append(("fetch", version))
+        return {"name": "fetch", "version": version or "latest"}
+
+    def fake_node_repl(
+        root: Path,
+        sdk_version: str | None = None,
+        zod_version: str | None = None,
+    ) -> dict[str, object]:
+        calls.append(("node-repl-linux", (sdk_version, zod_version)))
+        return {"name": "node-repl-linux"}
+
+    monkeypatch.setattr(mcp_updates_module, "update_serena_agent", fake_serena_agent)
+    monkeypatch.setattr(mcp_updates_module, "update_fetch", fake_fetch)
+    monkeypatch.setattr(mcp_updates_module, "update_codegraph", fake_codegraph)
+    monkeypatch.setattr(mcp_updates_module, "update_node_repl_linux", fake_node_repl)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {}})
+
+    result = mcp_updates_module.update_all_mcp(repo_root)
+
+    assert calls == [
+        ("serena-agent", None),
+        ("fetch", None),
+        ("codegraph", None),
+        ("node-repl-linux", (None, None)),
+    ]
+    assert [item["name"] for item in result["updated"]] == [
+        "serena-agent",
+        "fetch",
+        "codegraph",
+        "node-repl-linux",
+    ]
+    assert result["serena_manager"] == {
+        "name": "serena-manager",
+        "mode": "repo-local-manual",
+        "updated": False,
+    }
+
+
+def test_update_all_mcp_rolls_back_when_later_component_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    serena_vendor = repo_root / "vendor" / "mcp" / "serena-agent"
+    fetch_vendor = repo_root / "vendor" / "mcp" / "fetch"
+    codegraph_vendor = repo_root / "vendor" / "mcp" / "codegraph"
+    node_repl_vendor = repo_root / "vendor" / "mcp" / "node-repl-linux"
+
+    (serena_vendor / "pylib").mkdir(parents=True)
+    (serena_vendor / "pylib" / "marker.txt").write_text("before-serena\n", encoding="utf-8")
+    (serena_vendor / "upstream-dist-info").mkdir(parents=True)
+    (serena_vendor / "upstream-dist-info" / "METADATA").write_text("before-metadata\n", encoding="utf-8")
+    (serena_vendor / "requirements.lock").write_text("before-lock\n", encoding="utf-8")
+    fetch_vendor.mkdir(parents=True)
+    (fetch_vendor / "requirements.lock").write_text("before-fetch-lock\n", encoding="utf-8")
+    codegraph_vendor.mkdir(parents=True)
+    (codegraph_vendor / "package.json").write_text('{"version":"before"}\n', encoding="utf-8")
+    (codegraph_vendor / "package-lock.json").write_text('{"lock":"before"}\n', encoding="utf-8")
+    node_repl_vendor.mkdir(parents=True)
+    (node_repl_vendor / "package.json").write_text('{"version":"before"}\n', encoding="utf-8")
+    (node_repl_vendor / "package-lock.json").write_text('{"lock":"before"}\n', encoding="utf-8")
+
+    def fake_serena_agent(root: Path, version: str | None = None) -> dict[str, object]:
+        del version
+        (root / "vendor" / "mcp" / "serena-agent" / "requirements.lock").write_text("after-serena\n", encoding="utf-8")
+        return {"name": "serena-agent"}
+
+    def fake_codegraph(root: Path, version: str | None = None) -> dict[str, object]:
+        del version
+        (root / "vendor" / "mcp" / "codegraph" / "package.json").write_text('{"version":"after"}\n', encoding="utf-8")
+        return {"name": "codegraph"}
+
+    def fake_fetch(root: Path, version: str | None = None) -> dict[str, object]:
+        del version
+        (root / "vendor" / "mcp" / "fetch" / "requirements.lock").write_text("after-fetch-lock\n", encoding="utf-8")
+        return {"name": "fetch"}
+
+    def fake_node_repl(root: Path, sdk_version: str | None = None, zod_version: str | None = None) -> dict[str, object]:
+        del root, sdk_version, zod_version
+        raise SyncError("boom")
+
+    monkeypatch.setattr(mcp_updates_module, "update_serena_agent", fake_serena_agent)
+    monkeypatch.setattr(mcp_updates_module, "update_fetch", fake_fetch)
+    monkeypatch.setattr(mcp_updates_module, "update_codegraph", fake_codegraph)
+    monkeypatch.setattr(mcp_updates_module, "update_node_repl_linux", fake_node_repl)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {}})
+
+    with pytest.raises(SyncError, match="boom"):
+        mcp_updates_module.update_all_mcp(repo_root)
+
+    assert (serena_vendor / "requirements.lock").read_text(encoding="utf-8") == "before-lock\n"
+    assert (fetch_vendor / "requirements.lock").read_text(encoding="utf-8") == "before-fetch-lock\n"
+    assert (codegraph_vendor / "package.json").read_text(encoding="utf-8") == '{"version":"before"}\n'
+    assert (node_repl_vendor / "package.json").read_text(encoding="utf-8") == '{"version":"before"}\n'
+
+
+def test_cli_mcp_update_all_prints_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(
+        cli_module,
+        "default_paths",
+        lambda repo_root, config_override=None: SyncPaths(
+            repo_root=repo_root,
+            config_path=config_override or repo_root / "shared-ai-config.json",
+            state_path=repo_root / "state" / "sync-state.json",
+            service_path=repo_root / "service",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "update_all_mcp",
+        lambda repo_root, **_kwargs: {"updated": [{"name": "codegraph", "version": "1.2.3"}]},
+    )
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "mcp-update-all"])
+
+    cli_module.main()
+
+    assert json.loads(capsys.readouterr().out) == {"updated": [{"name": "codegraph", "version": "1.2.3"}]}
+
+
+def test_cli_mcp_update_fetch_prints_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(cli_module, "update_fetch", lambda repo_root, version=None: {"name": "fetch", "version": version or "2026.6.4"})
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "mcp-update-fetch"])
+
+    cli_module.main()
+
+    assert json.loads(capsys.readouterr().out) == {"name": "fetch", "version": "2026.6.4"}
+
+
+def test_update_codegraph_keeps_real_manifest_when_npm_refresh_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
+    vendor_dir = repo_root / "vendor" / "mcp" / "codegraph"
+    vendor_dir.mkdir(parents=True)
+    package_path = vendor_dir / "package.json"
+    lock_path = vendor_dir / "package-lock.json"
+    original_package = {"dependencies": {"@colbymchenry/codegraph": "1.0.1"}}
+    package_path.write_text(json.dumps(original_package, indent=2) + "\n", encoding="utf-8")
+    lock_path.write_text("{\"lockfileVersion\":3}\n", encoding="utf-8")
+    toolchain = {"uv": "/toolchain/uv", "npm": "/toolchain/node/bin/npm", "node": "/toolchain/node/bin/node"}
+
+    monkeypatch.setattr(mcp_updates_module, "_latest_npm_version", lambda _name: "1.2.3")
+    monkeypatch.setattr(mcp_updates_module, "_prepare_update_toolchain", lambda _repo_root: toolchain)
+    monkeypatch.setattr(mcp_updates_module, "preflight_mcp", lambda *_args, **_kwargs: {"runtime": {"codegraph": {"prepared": True}}})
+
+    def fake_run_command(
+        args: list[str],
+        cwd: Path | None = None,
+        env_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del cwd, env_overrides
+        raise sync_module.SyncError(f"boom: {' '.join(args)}")
+
+    monkeypatch.setattr(mcp_updates_module, "_run_command", fake_run_command)
+
+    with pytest.raises(SyncError, match="boom"):
+        mcp_updates_module.update_codegraph(repo_root)
+
+    assert json.loads(package_path.read_text(encoding="utf-8")) == original_package
+    assert lock_path.read_text(encoding="utf-8") == "{\"lockfileVersion\":3}\n"
+
+
+def test_repo_local_ui_ux_pro_max_assets_are_real_paths() -> None:
+    skill_root = Path(__file__).resolve().parents[1] / "skills" / "ui-ux-pro-max"
+
+    assert (skill_root / "scripts").is_dir()
+    assert (skill_root / "scripts" / "search.py").is_file()
+    assert (skill_root / "data").is_dir()
 
 
 def test_sync_clients_removes_managed_outputs_from_legacy_state_when_target_is_deleted(

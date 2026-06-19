@@ -1,0 +1,7 @@
+interface:
+  display_name: "Clarify With Repo Context"
+  short_description: "Resolve ambiguity against code and docs first"
+  default_prompt: "Use $clarify-with-repo-context to align an ambiguous request with the repo's terminology, docs, and existing implementation before planning or coding."
+
+policy:
+  allow_implicit_invocation: true

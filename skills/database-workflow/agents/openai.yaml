@@ -1,0 +1,7 @@
+interface:
+  display_name: "Database Workflow"
+  short_description: "Use local DB wrappers for safe SQL work"
+  default_prompt: "Use $database-workflow to inspect schemas, query data, analyze SQL, or perform explicit database writes through the local wrappers."
+
+policy:
+  allow_implicit_invocation: true

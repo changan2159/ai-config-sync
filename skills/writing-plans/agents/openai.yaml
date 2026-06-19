@@ -1,0 +1,7 @@
+interface:
+  display_name: "Writing Plans"
+  short_description: "Write concise file-aware implementation plans"
+  default_prompt: "Use $writing-plans to produce a concise, file-aware implementation plan with verification steps."
+
+policy:
+  allow_implicit_invocation: true

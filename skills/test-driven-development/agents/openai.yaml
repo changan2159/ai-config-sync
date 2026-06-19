@@ -1,0 +1,7 @@
+interface:
+  display_name: "Test-Driven Development"
+  short_description: "Drive changes with focused failing tests"
+  default_prompt: "Use $test-driven-development to write or update a focused failing test before implementing the change."
+
+policy:
+  allow_implicit_invocation: true

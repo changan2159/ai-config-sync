@@ -1,0 +1,7 @@
+interface:
+  display_name: "Systematic Debugging"
+  short_description: "Debug non-obvious failures with evidence first"
+  default_prompt: "Use $systematic-debugging to reproduce a non-obvious failure, identify the root cause, check schema or migration drift when database objects are missing, and verify the fix."
+
+policy:
+  allow_implicit_invocation: true

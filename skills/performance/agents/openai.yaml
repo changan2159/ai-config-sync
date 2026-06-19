@@ -1,0 +1,7 @@
+interface:
+  display_name: "Performance"
+  short_description: "Optimize frontend loading and runtime performance"
+  default_prompt: "Use $performance to identify and fix frontend performance bottlenecks, slow loading, and inefficient resources."
+
+policy:
+  allow_implicit_invocation: true

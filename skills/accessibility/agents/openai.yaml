@@ -1,0 +1,7 @@
+interface:
+  display_name: "Accessibility"
+  short_description: "Audit and improve WCAG accessibility"
+  default_prompt: "Use $accessibility to audit and improve keyboard access, screen reader support, contrast, semantics, and WCAG compliance."
+
+policy:
+  allow_implicit_invocation: true

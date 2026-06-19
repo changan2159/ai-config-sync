@@ -1,0 +1,3 @@
+[console_scripts]
+serena-manager = serena_manager.cli:main
+serena-manager-launcher = serena_manager.launcher:main

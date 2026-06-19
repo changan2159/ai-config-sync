@@ -2,56 +2,51 @@
   "mcpServers": {
     "fetch": {
       "type": "stdio",
-      "command": "/home/admin101/.local/bin/uvx",
-      "args": ["mcp-server-fetch"]
+      "command": "${REPO_ROOT}/tools/mcp/fetch.sh"
     },
     "serena": {
       "type": "stdio",
-      "command": "/home/admin101/.codex/mcp/serena-manager/run-serena-manager.sh"
+      "command": "${REPO_ROOT}/tools/mcp/serena-manager.sh"
     },
     "node_repl": {
       "type": "stdio",
-      "command": "/home/admin101/.codex/mcp/node-repl-linux/run-node-repl-linux.sh",
+      "command": "${REPO_ROOT}/tools/mcp/node-repl-linux.sh",
       "toolTimeoutSec": 120
     },
     "codegraph": {
       "type": "stdio",
-      "command": "/home/admin101/.codex/mcp/codegraph/codegraph-codex-wrapper.sh",
+      "command": "${REPO_ROOT}/tools/mcp/codegraph.sh",
       "args": ["serve", "--mcp"],
       "toolTimeoutSec": 120
     }
   },
   "skillRoots": [
     {
-      "path": "/home/admin101/.codex/skills",
+      "path": "${REPO_ROOT}/skills",
       "prefix": "",
       "exclude": [".system"]
-    },
-    {
-      "path": "/home/admin101/.codex/skills/.system",
-      "prefix": ""
     }
   ],
-  "globalPromptPath": "/home/admin101/projects/2026/ai-config-sync/shared-global-prompt.md",
+  "globalPromptPath": "${REPO_ROOT}/shared-global-prompt.md",
   "include": ["*"],
   "targets": {
     "codex": {
-      "configPath": "/home/admin101/.codex/config.toml",
-      "skillsDir": "/home/admin101/.codex/skills-shared",
-      "globalPromptPath": "/home/admin101/.codex/AGENTS.md",
-      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/codex-global-prompt.md"
+      "configPath": "${HOME}/.codex/config.toml",
+      "skillsDir": "${HOME}/.codex/skills-shared",
+      "globalPromptPath": "${HOME}/.codex/AGENTS.md",
+      "globalPromptAppendPath": "${REPO_ROOT}/codex-global-prompt.md"
     },
     "claude": {
-      "configPath": "/home/admin101/.claude.json",
-      "skillsDir": "/home/admin101/.claude/skills",
-      "globalPromptPath": "/home/admin101/.claude/CLAUDE.md",
-      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/claude-global-prompt.md"
+      "configPath": "${HOME}/.claude.json",
+      "skillsDir": "${HOME}/.claude/skills",
+      "globalPromptPath": "${HOME}/.claude/CLAUDE.md",
+      "globalPromptAppendPath": "${REPO_ROOT}/claude-global-prompt.md"
     },
     "opencode": {
-      "configPath": "/home/admin101/.config/opencode/opencode.jsonc",
+      "configPath": "${HOME}/.config/opencode/opencode.jsonc",
       "agentPrefix": "skill-",
-      "globalPromptPath": "/home/admin101/.config/opencode/AGENTS.md",
-      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/opencode-global-prompt.md"
+      "globalPromptPath": "${HOME}/.config/opencode/AGENTS.md",
+      "globalPromptAppendPath": "${REPO_ROOT}/opencode-global-prompt.md"
     }
   }
 }

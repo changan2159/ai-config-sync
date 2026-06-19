@@ -1,0 +1,4 @@
+[console_scripts]
+serena = serena.cli:top_level
+serena-agent = serena.cli:top_level
+serena-hooks = serena.hooks:hook_commands

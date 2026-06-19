@@ -1,0 +1,7 @@
+interface:
+  display_name: "Frontend Design Review"
+  short_description: "Review UI quality, design-system fit, and frontend craft"
+  default_prompt: "Use $frontend-design-review to review this frontend for visual quality, design-system compliance, accessibility, responsive behavior, and actionable UI fixes."
+
+policy:
+  allow_implicit_invocation: true

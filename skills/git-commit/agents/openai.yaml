@@ -1,0 +1,7 @@
+interface:
+  display_name: "Git Commit"
+  short_description: "Generate conventional commit messages from diffs"
+  default_prompt: "Use $git-commit to generate a conventional commit message from the current code changes."
+
+policy:
+  allow_implicit_invocation: true

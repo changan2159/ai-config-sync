@@ -6,9 +6,8 @@
 - Claude Code
 - OpenCode
 
-This project is intentionally separate from `serena-manager`.
-`serena-manager` owns Serena process lifecycle.
-`ai-config-sync` owns cross-client config sync.
+`serena-manager` is maintained directly inside this repository under `vendor/mcp/serena-manager`.
+`ai-config-sync` owns the shared cross-client sync layer and the vendored MCP update entrypoints.
 
 ## Single Source Of Truth
 
@@ -45,8 +44,19 @@ OpenCode-specific global prompt overlay:
 Shared skill sources:
 
 ```text
-/home/admin101/.codex/skills
-/home/admin101/.codex/skills/.system
+/home/admin101/projects/2026/ai-config-sync/skills
+```
+
+Repo-local MCP wrappers:
+
+```text
+/home/admin101/projects/2026/ai-config-sync/tools/mcp
+```
+
+Repo-local MCP runtimes:
+
+```text
+/home/admin101/projects/2026/ai-config-sync/vendor/mcp
 ```
 
 ## Commands
@@ -80,8 +90,34 @@ Check or stop the service:
 Add or remove one MCP across all three clients:
 
 ```bash
-.venv/bin/python -m ai_config_sync.cli mcp-add fetch --server-command /home/admin101/.local/bin/uvx --arg mcp-server-fetch
+.venv/bin/python -m ai_config_sync.cli mcp-add fetch --server-command "${PWD}/tools/mcp/fetch.sh"
 .venv/bin/python -m ai_config_sync.cli mcp-remove fetch
+```
+
+Update vendored MCPs:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli mcp-update-serena-agent
+.venv/bin/python -m ai_config_sync.cli mcp-update-fetch
+.venv/bin/python -m ai_config_sync.cli mcp-update-codegraph
+.venv/bin/python -m ai_config_sync.cli mcp-update-node-repl-linux
+.venv/bin/python -m ai_config_sync.cli mcp-update-all
+```
+
+Prepare the repo-local MCP toolchain and runtimes after a fresh clone, branch switch, or runtime-stale error:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli mcp-preflight
+```
+
+Script entrypoints:
+
+```bash
+./update-all-mcp.sh
+./scripts/mcp/update-serena-agent.sh
+./scripts/mcp/update-fetch.sh
+./scripts/mcp/update-codegraph.sh
+./scripts/mcp/update-node-repl-linux.sh
 ```
 
 ## Behavior
@@ -89,14 +125,24 @@ Add or remove one MCP across all three clients:
 - Codex MCP config is merged into `/home/admin101/.codex/config.toml`
 - Claude MCP config is merged into `/home/admin101/.claude.json`
 - OpenCode MCP config is merged into `/home/admin101/.config/opencode/opencode.jsonc`
+- Shared config uses `${REPO_ROOT}` and `${HOME}` placeholders so sync follows the current checkout location and current login user instead of one hard-coded username
 - Source `mcpServers.*.enabled: false` means that server is skipped for all synced targets
 - Shared global prompt core is copied to every configured client prompt target
 - Codex prompt is composed from the shared core plus the Codex overlay, then written to `/home/admin101/.codex/AGENTS.md`
 - Claude prompt is composed from the shared core plus the Claude overlay, then written to `/home/admin101/.claude/CLAUDE.md`
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
 - Plugin cache skills are not synced by default
-- Codex and Claude skills are symlinked from the two shared core skill roots above
+- Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
+- MCP commands point at repo-local wrapper scripts under `tools/mcp/`, and those wrappers bootstrap only the vendored repo-local runtimes under `vendor/mcp/`
+- `fetch` is now repo-local too: the shared config points at `tools/mcp/fetch.sh`, which runs a pinned `mcp-server-fetch` environment prepared under `vendor/mcp/fetch`
+- The Serena chain is now fully repo-local too: `serena-manager` launches `tools/mcp/serena-agent.sh`, which runs the vendored `vendor/mcp/serena-agent/pylib/serena` package instead of `/home/admin101/.local/bin/uvx`
+- `serena-manager` has no external pull/update step anymore; update its source directly in `vendor/mcp/serena-manager`
+- `mcp-update-all` updates the externally versioned vendored MCPs, including `fetch`, and reports `serena-manager` as repo-local/manual
+- `codegraph` is pinned to an exact npm version in `vendor/mcp/codegraph/package.json`; version bumps should happen through the update command or script so the lockfile stays in sync
+- Runtime wrappers under `tools/mcp/` no longer self-heal with host `uv` / `npm` / `node`; they read repo-local toolchain paths from `vendor/toolchain/runtime-env.sh` and fail fast if preflight has not prepared the repo-local runtime
+- `mcp-preflight` downloads the pinned repo-local toolchain from `toolchain.lock.json`, prepares managed Python/Node paths under `vendor/toolchain/`, and rebuilds stale vendored MCP runtimes before any CLI launches them
+- If a repo-local MCP runtime is missing or cannot bootstrap, sync fails fast instead of falling back to a user-home installation
 - Codex sync currently supports only `stdio` MCP servers; remote MCP entries in the shared source will fail fast when a Codex target is enabled
 - OpenCode keeps unrelated JSONC content and comments, but the managed `mcp` and `agent` sections are rewritten on sync
 - `stdio` MCP entries must define `command`; sync now fails fast instead of writing broken Codex, Claude, or OpenCode config

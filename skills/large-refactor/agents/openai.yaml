@@ -1,0 +1,7 @@
+interface:
+  display_name: "Large Refactor"
+  short_description: "Plan and execute large refactors safely"
+  default_prompt: "Use $large-refactor to plan and execute a large, multi-phase refactor with compatibility checks."
+
+policy:
+  allow_implicit_invocation: true

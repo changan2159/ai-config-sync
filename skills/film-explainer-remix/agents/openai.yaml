@@ -1,0 +1,7 @@
+interface:
+  display_name: "影视解说重剪"
+  short_description: "先调研剧情和竞品结构，再写原创文案、字幕分镜、配音，并按文案剪成影视解说。"
+  default_prompt: "Use $film-explainer-remix to research the film or series, analyze strong explainer structures, then produce an original Chinese narration script, subtitle timing, voice plan, and shot-level edit table."
+
+policy:
+  allow_implicit_invocation: true

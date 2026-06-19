@@ -5,3 +5,12 @@ __pycache__/
 src/*.egg-info/
 src/**/*.egg-info/
 state/
+.coverage
+.coverage.*
+.codegraph/
+vendor/mcp/**/.venv/
+vendor/mcp/**/node_modules/
+vendor/mcp/**/.source.sha256
+vendor/mcp/**/.requirements.sha256
+vendor/mcp/**/.package-lock.sha256
+vendor/toolchain/

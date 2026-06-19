@@ -1,0 +1,7 @@
+interface:
+  display_name: "Security Review"
+  short_description: "Audit code for concrete security risks"
+  default_prompt: "Use $security-review to audit code, configuration, dependencies, secrets, auth, and input handling for concrete security risks."
+
+policy:
+  allow_implicit_invocation: true

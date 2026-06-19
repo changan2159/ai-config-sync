@@ -1,0 +1,7 @@
+interface:
+  display_name: "UI/UX Pro Max"
+  short_description: "Use UI/UX heuristics for layouts, styles, and interactions"
+  default_prompt: "Use $ui-ux-pro-max to plan UI/UX structure, layout, spacing, style direction, responsive behavior, and interaction quality before implementation."
+
+policy:
+  allow_implicit_invocation: true

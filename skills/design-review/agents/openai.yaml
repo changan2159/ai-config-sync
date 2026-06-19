@@ -1,0 +1,7 @@
+interface:
+  display_name: "Design Review"
+  short_description: "Audit visual polish, spacing, layout, and hierarchy"
+  default_prompt: "Use $design-review to inspect this UI visually, capture screenshots when feasible, and report the highest-impact layout, spacing, hierarchy, and polish issues."
+
+policy:
+  allow_implicit_invocation: true

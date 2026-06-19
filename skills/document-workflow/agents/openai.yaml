@@ -1,0 +1,7 @@
+interface:
+  display_name: "Document Workflow"
+  short_description: "Work with Office, PDF, and tabular files"
+  default_prompt: "Use $document-workflow to read, convert, create, edit, or validate Office, PDF, spreadsheet, CSV, or Markdown document deliverables."
+
+policy:
+  allow_implicit_invocation: true

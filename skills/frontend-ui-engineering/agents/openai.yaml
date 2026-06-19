@@ -1,0 +1,7 @@
+interface:
+  display_name: "Frontend UI Engineering"
+  short_description: "Build production-quality accessible frontend UI"
+  default_prompt: "Use $frontend-ui-engineering to implement production-quality, accessible, responsive UI that follows existing design-system patterns."
+
+policy:
+  allow_implicit_invocation: true

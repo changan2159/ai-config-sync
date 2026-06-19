@@ -1,0 +1,13 @@
+interface:
+  display_name: "ASP.NET Modular Autofac"
+  short_description: "Trace modular ASP.NET Core registration flow"
+  default_prompt: "Use $aspnet-modular-autofac to trace startup, DI, and module discovery."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "serena"
+      description: "Preferred MCP for symbol-aware tracing of ASP.NET Core, Autofac, and modular discovery flows."
+
+policy:
+  allow_implicit_invocation: true

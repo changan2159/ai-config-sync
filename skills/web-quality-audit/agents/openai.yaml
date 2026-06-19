@@ -1,0 +1,7 @@
+interface:
+  display_name: "Web Quality Audit"
+  short_description: "Audit performance, accessibility, SEO, and best practices"
+  default_prompt: "Use $web-quality-audit to run a comprehensive web quality audit covering performance, accessibility, SEO, and best practices."
+
+policy:
+  allow_implicit_invocation: true

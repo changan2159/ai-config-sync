@@ -1,0 +1,13 @@
+interface:
+  display_name: "C# Symbolic Workflow"
+  short_description: "Use symbol-aware flow for .NET code work and EF schema changes"
+  default_prompt: "Use $csharp-symbolic-workflow for symbol-aware C# and .NET code changes; if the edit touches EF Core schema, generate and verify the matching migration."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "serena"
+      description: "Primary MCP server for symbol navigation, references, implementations, and call hierarchy in C#/.NET repositories."
+
+policy:
+  allow_implicit_invocation: true

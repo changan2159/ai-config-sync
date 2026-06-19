@@ -1,0 +1,7 @@
+interface:
+  display_name: "MCP Builder"
+  short_description: "Design and build MCP servers and tools"
+  default_prompt: "Use $mcp-builder to design, implement, review, or troubleshoot Model Context Protocol servers, clients, tools, resources, or prompts."
+
+policy:
+  allow_implicit_invocation: true

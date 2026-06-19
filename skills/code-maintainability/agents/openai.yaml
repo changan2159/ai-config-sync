@@ -1,0 +1,7 @@
+interface:
+  display_name: "Code Maintainability"
+  short_description: "Keep code reusable, cohesive, and easy to change"
+  default_prompt: "Use $code-maintainability to implement this change with reuse checks, focused abstractions, and maintainable file boundaries."
+
+policy:
+  allow_implicit_invocation: true

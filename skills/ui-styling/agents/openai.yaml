@@ -1,0 +1,7 @@
+interface:
+  display_name: "UI Styling"
+  short_description: "Build polished Tailwind and shadcn/ui interfaces"
+  default_prompt: "Use $ui-styling to implement polished Tailwind or shadcn/ui layouts with accessible components, responsive behavior, and consistent styling."
+
+policy:
+  allow_implicit_invocation: true

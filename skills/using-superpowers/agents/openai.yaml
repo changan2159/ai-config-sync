@@ -1,0 +1,7 @@
+interface:
+  display_name: "Using Superpowers"
+  short_description: "Set a simple, surgical default working style"
+  default_prompt: "Use $using-superpowers at the start of a session to set a simple, surgical operating style and defer to specialized skills when useful."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Parallel Execution"
+  short_description: "Plan safe multi-role waves only when needed"
+  default_prompt: "Use $parallel-execution to decide whether work should stay serial or split into dependency-safe waves with clear ownership boundaries."
+
+policy:
+  allow_implicit_invocation: true

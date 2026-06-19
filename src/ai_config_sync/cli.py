@@ -8,6 +8,14 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from ai_config_sync.mcp_runtime import preflight_mcp
+from ai_config_sync.mcp_updates import (
+    update_all_mcp,
+    update_codegraph,
+    update_fetch,
+    update_node_repl_linux,
+    update_serena_agent,
+)
 from ai_config_sync.sync import (
     McpServerConfig,
     SyncError,
@@ -173,6 +181,28 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_remove.add_argument("name")
     mcp_remove.add_argument("--config", required=False)
 
+    mcp_update_serena = subparsers.add_parser("mcp-update-serena-agent")
+    mcp_update_serena.add_argument("--version", required=False)
+
+    mcp_update_fetch = subparsers.add_parser("mcp-update-fetch")
+    mcp_update_fetch.add_argument("--version", required=False)
+
+    mcp_update_codegraph = subparsers.add_parser("mcp-update-codegraph")
+    mcp_update_codegraph.add_argument("--version", required=False)
+
+    mcp_update_node_repl = subparsers.add_parser("mcp-update-node-repl-linux")
+    mcp_update_node_repl.add_argument("--sdk-version", required=False)
+    mcp_update_node_repl.add_argument("--zod-version", required=False)
+
+    mcp_update_all = subparsers.add_parser("mcp-update-all")
+    mcp_update_all.add_argument("--serena-agent-version", required=False)
+    mcp_update_all.add_argument("--fetch-version", required=False)
+    mcp_update_all.add_argument("--codegraph-version", required=False)
+    mcp_update_all.add_argument("--sdk-version", required=False)
+    mcp_update_all.add_argument("--zod-version", required=False)
+
+    subparsers.add_parser("mcp-preflight")
+
     return parser
 
 
@@ -180,8 +210,45 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     repo_root = _resolve_repo_root()
-    paths = default_paths(repo_root, Path(args.config) if hasattr(args, "config") and args.config else None)
     try:
+        if args.command == "mcp-update-serena-agent":
+            print(json.dumps(update_serena_agent(repo_root, version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "mcp-update-fetch":
+            print(json.dumps(update_fetch(repo_root, version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "mcp-update-codegraph":
+            print(json.dumps(update_codegraph(repo_root, version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "mcp-update-node-repl-linux":
+            print(
+                json.dumps(
+                    update_node_repl_linux(repo_root, sdk_version=args.sdk_version, zod_version=args.zod_version),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "mcp-update-all":
+            print(
+                json.dumps(
+                    update_all_mcp(
+                        repo_root,
+                        serena_agent_version=args.serena_agent_version,
+                        fetch_version=args.fetch_version,
+                        codegraph_version=args.codegraph_version,
+                        sdk_version=args.sdk_version,
+                        zod_version=args.zod_version,
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "mcp-preflight":
+            print(json.dumps(preflight_mcp(repo_root), indent=2, ensure_ascii=False))
+            return
+        paths = default_paths(repo_root, Path(args.config) if hasattr(args, "config") and args.config else None)
         if args.command == "sync-once":
             print(json.dumps(sync_clients(load_sync_config(paths.config_path), paths.state_path), indent=2, ensure_ascii=False))
             return

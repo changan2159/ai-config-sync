@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Subagent"
+  short_description: "Delegate bounded work to Codex subagents"
+  default_prompt: "Use $codex-subagent to decide whether to delegate bounded work to Codex subagents and write precise prompts."
+
+policy:
+  allow_implicit_invocation: true

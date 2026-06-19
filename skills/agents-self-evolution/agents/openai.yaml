@@ -1,0 +1,7 @@
+interface:
+  display_name: "Agents Self Evolution"
+  short_description: "Persist AGENTS and durable project context"
+  default_prompt: "Use $agents-self-evolution to run a default end-of-task self-check and persist durable project context after coding, debugging, review, or refactor work by safely updating AGENTS.md, Serena memories, and shared business documentation from repeated corrections and verified discoveries."
+
+policy:
+  allow_implicit_invocation: true

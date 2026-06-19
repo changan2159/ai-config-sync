@@ -1,0 +1,13 @@
+interface:
+  display_name: "Serena Workflow"
+  short_description: "Use Serena for activation, memory, and symbols"
+  default_prompt: "Use $serena-workflow to anchor the task in Serena-first project activation, onboarding, memory, and symbol-aware structure discovery."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "serena"
+      description: "Primary MCP server for project activation, memories, symbol search, references, and structure-aware edits."
+
+policy:
+  allow_implicit_invocation: true

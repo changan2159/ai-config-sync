@@ -1,0 +1,7 @@
+interface:
+  display_name: "Architecture Deepening"
+  short_description: "Prevent file bloat and shallow abstractions"
+  default_prompt: "Use $architecture-deepening to keep this change from turning into file bloat, duplicated orchestration, or shallow wrappers."
+
+policy:
+  allow_implicit_invocation: true

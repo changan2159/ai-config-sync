@@ -1,0 +1,9 @@
+interface:
+  display_name: "GitHub Address Comments"
+  short_description: "Address actionable GitHub PR review comments"
+  icon_small: "./assets/github-small.svg"
+  icon_large: "./assets/github.png"
+  default_prompt: "Use $gh-address-comments to address actionable GitHub PR review comments on the current branch and summarize the updates."
+
+policy:
+  allow_implicit_invocation: true

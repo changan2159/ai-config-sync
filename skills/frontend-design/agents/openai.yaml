@@ -1,0 +1,7 @@
+interface:
+  display_name: "Frontend Design"
+  short_description: "Plan, review, and improve frontend layout and UI quality"
+  default_prompt: "Use $frontend-design to audit the current frontend layout, plan the spacing and hierarchy, implement focused UI improvements, and verify the result visually."
+
+policy:
+  allow_implicit_invocation: true

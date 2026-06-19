@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import time
@@ -113,40 +114,42 @@ def default_paths(repo_root: Path, config_path: Path | None = None) -> SyncPaths
 
 
 def load_sync_config(path: Path) -> SyncConfig:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    config_path = path.expanduser().resolve()
+    repo_root = config_path.parent
+    data = json.loads(config_path.read_text(encoding="utf-8"))
     roots = tuple(
         SkillRootConfig(
-            path=Path(item["path"]).expanduser(),
+            path=_resolve_path(item["path"], repo_root),
             prefix=str(item.get("prefix", "")),
             exclude=tuple(item.get("exclude", [])),
         )
         for item in data.get("skillRoots", [])
     )
-    mcp_servers = tuple(_parse_mcp_server(name, item) for name, item in data.get("mcpServers", {}).items())
+    mcp_servers = tuple(_parse_mcp_server(name, item, repo_root) for name, item in data.get("mcpServers", {}).items())
     targets = data.get("targets", {})
     codex = CodexTargetConfig(
-        config_path=Path(targets["codex"]["configPath"]).expanduser(),
-        skills_dir=Path(targets["codex"]["skillsDir"]).expanduser(),
-        global_prompt_path=_optional_path(targets["codex"].get("globalPromptPath")),
-        global_prompt_append_path=_optional_path(targets["codex"].get("globalPromptAppendPath")),
+        config_path=_resolve_path(targets["codex"]["configPath"], repo_root),
+        skills_dir=_resolve_path(targets["codex"]["skillsDir"], repo_root),
+        global_prompt_path=_optional_path(targets["codex"].get("globalPromptPath"), repo_root),
+        global_prompt_append_path=_optional_path(targets["codex"].get("globalPromptAppendPath"), repo_root),
     ) if "codex" in targets else None
     claude = ClaudeTargetConfig(
-        config_path=Path(targets["claude"]["configPath"]).expanduser(),
-        skills_dir=Path(targets["claude"]["skillsDir"]).expanduser(),
-        global_prompt_path=_optional_path(targets["claude"].get("globalPromptPath")),
-        global_prompt_append_path=_optional_path(targets["claude"].get("globalPromptAppendPath")),
+        config_path=_resolve_path(targets["claude"]["configPath"], repo_root),
+        skills_dir=_resolve_path(targets["claude"]["skillsDir"], repo_root),
+        global_prompt_path=_optional_path(targets["claude"].get("globalPromptPath"), repo_root),
+        global_prompt_append_path=_optional_path(targets["claude"].get("globalPromptAppendPath"), repo_root),
     ) if "claude" in targets else None
     opencode = OpencodeTargetConfig(
-        config_path=Path(targets["opencode"]["configPath"]).expanduser(),
+        config_path=_resolve_path(targets["opencode"]["configPath"], repo_root),
         agent_prefix=str(targets["opencode"].get("agentPrefix", "skill-")),
-        global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath")),
-        global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath")),
+        global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath"), repo_root),
+        global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath"), repo_root),
     ) if "opencode" in targets else None
     return SyncConfig(
         mcp_servers=mcp_servers,
         skill_roots=roots,
         include=tuple(data.get("include", ["*"])),
-        global_prompt_path=_optional_path(data.get("globalPromptPath")),
+        global_prompt_path=_optional_path(data.get("globalPromptPath"), repo_root),
         codex=codex,
         claude=claude,
         opencode=opencode,
@@ -696,14 +699,14 @@ def stop_service(paths: SyncPaths) -> dict[str, Any]:
     return service_status(paths)
 
 
-def _parse_mcp_server(name: str, item: dict[str, Any]) -> McpServerConfig:
+def _parse_mcp_server(name: str, item: dict[str, Any], repo_root: Path) -> McpServerConfig:
     return McpServerConfig(
         name=name,
         transport=str(item.get("type", "stdio")),
-        command=item.get("command"),
-        args=tuple(item.get("args", [])),
-        cwd=item.get("cwd"),
-        env={str(k): str(v) for k, v in item.get("env", {}).items()} or None,
+        command=_optional_string(item.get("command"), repo_root),
+        args=tuple(_expand_string_template(str(arg), repo_root) for arg in item.get("args", [])),
+        cwd=_optional_string(item.get("cwd"), repo_root),
+        env={str(k): _expand_string_template(str(v), repo_root) for k, v in item.get("env", {}).items()} or None,
         url=item.get("url"),
         headers={str(k): str(v) for k, v in item.get("headers", {}).items()} or None,
         tool_timeout_sec=int(item["toolTimeoutSec"]) if item.get("toolTimeoutSec") is not None else None,
@@ -711,10 +714,25 @@ def _parse_mcp_server(name: str, item: dict[str, Any]) -> McpServerConfig:
     )
 
 
-def _optional_path(value: Any) -> Path | None:
+def _optional_path(value: Any, repo_root: Path | None = None) -> Path | None:
     if value in (None, ""):
         return None
-    return Path(str(value)).expanduser()
+    return _resolve_path(value, repo_root or Path.cwd())
+
+
+def _optional_string(value: Any, repo_root: Path) -> str | None:
+    if value in (None, ""):
+        return None
+    return _expand_string_template(str(value), repo_root)
+
+
+def _resolve_path(value: Any, repo_root: Path) -> Path:
+    return Path(_expand_string_template(str(value), repo_root))
+
+
+def _expand_string_template(value: str, repo_root: Path) -> str:
+    expanded = value.replace("${REPO_ROOT}", str(repo_root)).replace("${HOME}", str(Path.home()))
+    return os.path.expanduser(expanded)
 
 
 def _legacy_default_target_paths(target_name: str) -> dict[str, Path | tuple[Path, ...]]:

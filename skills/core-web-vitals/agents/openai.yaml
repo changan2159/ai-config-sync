@@ -1,0 +1,7 @@
+interface:
+  display_name: "Core Web Vitals"
+  short_description: "Improve LCP, INP, CLS, and page experience"
+  default_prompt: "Use $core-web-vitals to diagnose and improve LCP, INP, CLS, and layout shift problems."
+
+policy:
+  allow_implicit_invocation: true
