@@ -16,6 +16,13 @@ from ai_config_sync.mcp_updates import (
     update_node_repl_linux,
     update_serena_agent,
 )
+from ai_config_sync.opencode_manager import (
+    install_opencode,
+    install_opencode_service,
+    opencode_status,
+    start_opencode_service,
+    stop_opencode_service,
+)
 from ai_config_sync.sync import (
     McpServerConfig,
     SyncError,
@@ -201,6 +208,21 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_update_all.add_argument("--sdk-version", required=False)
     mcp_update_all.add_argument("--zod-version", required=False)
 
+    opencode_install = subparsers.add_parser("opencode-install")
+    opencode_install.add_argument("--version", required=False)
+
+    subparsers.add_parser("opencode-status")
+
+    opencode_service_install = subparsers.add_parser("opencode-service-install")
+    opencode_service_install.add_argument("--port", type=int, default=3000)
+    opencode_service_install.add_argument("--hostname", default="0.0.0.0")
+
+    opencode_service_start = subparsers.add_parser("opencode-service-start")
+    opencode_service_start.add_argument("--port", type=int, default=3000)
+    opencode_service_start.add_argument("--hostname", default="0.0.0.0")
+
+    subparsers.add_parser("opencode-service-stop")
+
     subparsers.add_parser("mcp-preflight")
 
     mcp_clean = subparsers.add_parser("mcp-clean")
@@ -247,6 +269,33 @@ def main() -> None:
                     ensure_ascii=False,
                 )
             )
+            return
+        if args.command == "opencode-install":
+            print(json.dumps(install_opencode(version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "opencode-status":
+            print(json.dumps(opencode_status(), indent=2, ensure_ascii=False))
+            return
+        if args.command == "opencode-service-install":
+            print(
+                json.dumps(
+                    install_opencode_service(port=args.port, hostname=args.hostname),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "opencode-service-start":
+            print(
+                json.dumps(
+                    start_opencode_service(port=args.port, hostname=args.hostname),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "opencode-service-stop":
+            print(json.dumps(stop_opencode_service(), indent=2, ensure_ascii=False))
             return
         if args.command == "mcp-preflight":
             print(json.dumps(preflight_mcp(repo_root), indent=2, ensure_ascii=False))

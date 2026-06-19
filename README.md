@@ -110,9 +110,35 @@ Prepare the repo-local MCP toolchain and runtimes after a fresh clone, branch sw
 .venv/bin/python -m ai_config_sync.cli mcp-preflight
 ```
 
+Install or update the managed OpenCode runtime:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli opencode-install
+.venv/bin/python -m ai_config_sync.cli opencode-install --version 1.17.8
+```
+
+Install or start the managed OpenCode web service:
+
+```bash
+sudo .venv/bin/python -m ai_config_sync.cli opencode-service-install
+sudo .venv/bin/python -m ai_config_sync.cli opencode-service-start
+.venv/bin/python -m ai_config_sync.cli opencode-status
+```
+
+Update an existing managed install:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli opencode-install --version 1.17.8
+sudo systemctl restart opencode-web.service
+```
+
 Script entrypoints:
 
 ```bash
+./scripts/claude/update-claude.sh
+./scripts/claude/update-claude.sh 2.1.183
+./scripts/opencode/update-opencode.sh
+./scripts/opencode/update-opencode.sh 1.17.8
 ./update-all-mcp.sh
 ./scripts/mcp/update-serena-agent.sh
 ./scripts/mcp/update-fetch.sh
@@ -131,9 +157,16 @@ Script entrypoints:
 - Codex prompt is composed from the shared core plus the Codex overlay, then written to `/home/admin101/.codex/AGENTS.md`
 - Claude prompt is composed from the shared core plus the Claude overlay, then written to `/home/admin101/.claude/CLAUDE.md`
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
+- Claude should use the native user-level install under `/home/admin101/.local/bin/claude`; avoid keeping a parallel global npm install because `claude update` warns on multi-install drift and the native updater already manages versions under `/home/admin101/.local/share/claude/versions/`
 - Plugin cache skills are not synced by default
 - Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
+- Managed OpenCode runtime installs live under `/home/admin101/.local/share/ai-config-sync/opencode/releases/<version>` as official release binaries instead of `/usr/local/lib/node_modules`
+- `/home/admin101/.local/bin/opencode` is a managed wrapper that probes `current` first and falls back to the previous healthy release if the current one is broken
+- `opencode-install` resolves the latest version from the official GitHub releases API, downloads the matching release asset for the current host, validates both `opencode --version` and a short-lived `opencode serve` probe, and only then switches the `current` symlink
+- The canonical boot path is the system service `/etc/systemd/system/opencode-web.service`, which runs as the login user but starts from `multi-user.target` instead of depending on a user-session service
+- `opencode-service-start` disables the old user unit `opencode-web-managed.service` before enabling the system service, so future updates do not recreate the previous port-conflict path
+- `loginctl linger` may still remain enabled on this host for `ai-config-sync.service`, but OpenCode itself no longer depends on a user service or linger to start after boot
 - MCP commands point at repo-local wrapper scripts under `tools/mcp/`, and those wrappers bootstrap only the vendored repo-local runtimes under `vendor/mcp/`
 - `fetch` is now repo-local too: the shared config points at `tools/mcp/fetch.sh`, which runs a pinned `mcp-server-fetch` environment prepared under `vendor/mcp/fetch`
 - The Serena chain is now fully repo-local too: `serena-manager` launches `tools/mcp/serena-agent.sh`, which runs the vendored `vendor/mcp/serena-agent/pylib/serena` package instead of `/home/admin101/.local/bin/uvx`
