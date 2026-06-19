@@ -1,0 +1,8 @@
+- `cli.main()` must resolve the project `repo_root` from the invoked entrypoint path or current workspace markers, not from `__file__`, because the packaged console script may run from `.venv/bin` while the module lives under `site-packages`.
+- `sync_clients()` should preflight target config rendering before writing any managed target files, and target-removal cleanup depends on persisting target `config_path` / `skills_dir` in state so removed targets can have stale managed output cleaned on the next sync.
+- Invalid OpenCode JSONC should surface as `SyncError`, and leading comments containing braces are valid input that must not break top-level key updates.
+- `install_service()` must leave `WorkingDirectory=` unquoted in the generated systemd unit; quote `ExecStart` arguments as needed, and validate space-containing paths with `systemd-analyze verify`.
+- CLI-side MCP add/remove rollback must restore both `shared-ai-config.json` and any already-written managed target files or state snapshots when sync fails after target writes begin.
+- When reading pre-upgrade state that lacks `skills_dir`, skill cleanup for removed Codex/Claude targets should fall back to inferring the legacy skills directory from the target config location and the managed link names.
+- If a managed prompt target is a symlink, cleanup for disabled or moved prompt outputs must remove both the symlink path and the resolved backing file unless the new target resolves to the same file.
+- Legacy target cleanup must also handle pre-upgrade state that lacks `config_path`; infer conventional client config locations for Codex, Claude, and OpenCode before giving up on removing stale managed MCP entries.

@@ -1,0 +1,8 @@
+- Language: Python 3.11+.
+- Packaging: setuptools with `src/` layout.
+- Dependency management: `uv.lock` present; project metadata in `pyproject.toml`.
+- Runtime dependency: `psutil`.
+- Dev/test dependency: `pytest`.
+- Delivery surface: console script `ai-config-sync = ai_config_sync.cli:main`.
+- Persistence/state: sync state is written as JSON under `state/sync-state.json`.
+- Service integration: user-level systemd unit `ai-config-sync.service` can run watch mode persistently.

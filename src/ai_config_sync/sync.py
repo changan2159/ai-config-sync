@@ -12,6 +12,7 @@ from typing import Any
 
 MANAGED_BLOCK_BEGIN = "# >>> ai-config-sync managed mcp begin"
 MANAGED_BLOCK_END = "# <<< ai-config-sync managed mcp end"
+SKILL_MANIFEST_NAME = ".ai-config-sync-managed.json"
 
 
 class SyncError(RuntimeError):
@@ -43,18 +44,24 @@ class SkillRootConfig:
 class CodexTargetConfig:
     config_path: Path
     skills_dir: Path
+    global_prompt_path: Path | None = None
+    global_prompt_append_path: Path | None = None
 
 
 @dataclass(frozen=True)
 class ClaudeTargetConfig:
     config_path: Path
     skills_dir: Path
+    global_prompt_path: Path | None = None
+    global_prompt_append_path: Path | None = None
 
 
 @dataclass(frozen=True)
 class OpencodeTargetConfig:
     config_path: Path
     agent_prefix: str = "skill-"
+    global_prompt_path: Path | None = None
+    global_prompt_append_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,7 @@ class SyncConfig:
     mcp_servers: tuple[McpServerConfig, ...]
     skill_roots: tuple[SkillRootConfig, ...]
     include: tuple[str, ...]
+    global_prompt_path: Path | None
     codex: CodexTargetConfig | None
     claude: ClaudeTargetConfig | None
     opencode: OpencodeTargetConfig | None
@@ -74,6 +82,15 @@ class ResolvedSkill:
     skill_file: Path
     prompt: str
     description: str
+
+
+@dataclass(frozen=True)
+class SkillLinkPlan:
+    target_dir: Path
+    linked: tuple[str, ...]
+    removed: tuple[str, ...]
+    paths_to_remove: tuple[Path, ...]
+    symlinks_to_create: tuple[tuple[Path, Path], ...]
 
 
 @dataclass(frozen=True)
@@ -110,19 +127,26 @@ def load_sync_config(path: Path) -> SyncConfig:
     codex = CodexTargetConfig(
         config_path=Path(targets["codex"]["configPath"]).expanduser(),
         skills_dir=Path(targets["codex"]["skillsDir"]).expanduser(),
+        global_prompt_path=_optional_path(targets["codex"].get("globalPromptPath")),
+        global_prompt_append_path=_optional_path(targets["codex"].get("globalPromptAppendPath")),
     ) if "codex" in targets else None
     claude = ClaudeTargetConfig(
         config_path=Path(targets["claude"]["configPath"]).expanduser(),
         skills_dir=Path(targets["claude"]["skillsDir"]).expanduser(),
+        global_prompt_path=_optional_path(targets["claude"].get("globalPromptPath")),
+        global_prompt_append_path=_optional_path(targets["claude"].get("globalPromptAppendPath")),
     ) if "claude" in targets else None
     opencode = OpencodeTargetConfig(
         config_path=Path(targets["opencode"]["configPath"]).expanduser(),
         agent_prefix=str(targets["opencode"].get("agentPrefix", "skill-")),
+        global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath")),
+        global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath")),
     ) if "opencode" in targets else None
     return SyncConfig(
         mcp_servers=mcp_servers,
         skill_roots=roots,
         include=tuple(data.get("include", ["*"])),
+        global_prompt_path=_optional_path(data.get("globalPromptPath")),
         codex=codex,
         claude=claude,
         opencode=opencode,
@@ -137,73 +161,240 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_codex_skills = previous.get("codex", {}).get("skills", [])
     previous_claude_skills = previous.get("claude", {}).get("skills", [])
     previous_opencode_agents = previous.get("opencode", {}).get("agents", [])
+    previous_codex_prompt_path = _optional_path(previous.get("codex", {}).get("global_prompt_path"))
+    previous_claude_prompt_path = _optional_path(previous.get("claude", {}).get("global_prompt_path"))
+    previous_opencode_prompt_path = _optional_path(previous.get("opencode", {}).get("global_prompt_path"))
+    previous_codex_config_path = _optional_path(previous.get("codex", {}).get("config_path"))
+    previous_claude_config_path = _optional_path(previous.get("claude", {}).get("config_path"))
+    previous_opencode_config_path = _optional_path(previous.get("opencode", {}).get("config_path"))
+    previous_codex_skills_dir = _optional_path(previous.get("codex", {}).get("skills_dir"))
+    previous_claude_skills_dir = _optional_path(previous.get("claude", {}).get("skills_dir"))
+    codex_legacy_paths = _legacy_default_target_paths("codex")
+    claude_legacy_paths = _legacy_default_target_paths("claude")
+    opencode_legacy_paths = _legacy_default_target_paths("opencode")
+    if previous_codex_config_path is None:
+        previous_codex_config_path = _infer_legacy_config_path(
+            codex_legacy_paths["config_path"],
+            previous_codex_mcp,
+        )
+    if previous_claude_config_path is None:
+        previous_claude_config_path = _infer_legacy_config_path(
+            claude_legacy_paths["config_path"],
+            previous_claude_mcp,
+        )
+    if previous_opencode_config_path is None:
+        previous_opencode_config_path = _infer_legacy_config_path(
+            opencode_legacy_paths["config_path"],
+            [*previous_opencode_mcp, *previous_opencode_agents],
+        )
+    if previous_codex_skills_dir is None and previous_codex_config_path is not None:
+        previous_codex_skills_dir = _infer_legacy_skills_dir(
+            previous_codex_config_path,
+            previous_codex_skills,
+            ("skills-shared", "skills"),
+        )
+    if previous_codex_skills_dir is None:
+        previous_codex_skills_dir = _infer_legacy_skills_dir_from_candidates(
+            previous_codex_skills,
+            codex_legacy_paths["skills_dirs"],
+        )
+    if previous_claude_skills_dir is None and previous_claude_config_path is not None:
+        previous_claude_skills_dir = _infer_legacy_skills_dir(
+            previous_claude_config_path,
+            previous_claude_skills,
+            ("skills",),
+        )
+    if previous_claude_skills_dir is None:
+        previous_claude_skills_dir = _infer_legacy_skills_dir_from_candidates(
+            previous_claude_skills,
+            claude_legacy_paths["skills_dirs"],
+        )
 
     skills = resolve_skills(config.skill_roots, config.include)
-
+    enabled_servers = tuple(server for server in config.mcp_servers if server.enabled)
     result: dict[str, Any] = {
-        "mcp_servers": [server.name for server in config.mcp_servers],
+        "mcp_servers": [server.name for server in enabled_servers],
         "skills": [skill.name for skill in skills],
         "targets": {},
     }
 
+    codex_state: dict[str, Any] = {}
+    claude_state: dict[str, Any] = {}
+    opencode_state: dict[str, Any] = {}
+    codex_config_payload: tuple[Path, str] | None = None
+    claude_config_payload: tuple[Path, str] | None = None
+    opencode_config_payload: tuple[Path, str] | None = None
+    codex_skill_plan: SkillLinkPlan | None = None
+    claude_skill_plan: SkillLinkPlan | None = None
+    codex_prompt_text: str | None = None
+    claude_prompt_text: str | None = None
+    opencode_prompt_text: str | None = None
+    active_codex_prompt_path: Path | None = None
+    active_claude_prompt_path: Path | None = None
+    active_opencode_prompt_path: Path | None = None
+
     if config.codex:
-        sync_codex_config(config.codex.config_path, config.mcp_servers, previous_codex_mcp)
-        result["targets"]["codex"] = {
+        codex_original = config.codex.config_path.read_text(encoding="utf-8") if config.codex.config_path.exists() else ""
+        codex_config_payload = (
+            config.codex.config_path,
+            build_codex_config_payload(codex_original, enabled_servers, previous_codex_mcp),
+        )
+        codex_skill_plan = plan_skill_links(config.codex.skills_dir, skills, previous_codex_skills)
+        codex_result: dict[str, Any] = {
             "config_path": str(config.codex.config_path),
-            "skills": sync_skill_links(config.codex.skills_dir, skills, previous_codex_skills),
+            "skills": {"linked": list(codex_skill_plan.linked), "removed": list(codex_skill_plan.removed)},
         }
+        codex_prompt_text = build_global_prompt(config.global_prompt_path, config.codex.global_prompt_append_path)
+        if codex_prompt_text is not None and config.codex.global_prompt_path is not None:
+            codex_result["global_prompt_path"] = str(config.codex.global_prompt_path)
+            active_codex_prompt_path = config.codex.global_prompt_path
+            if config.codex.global_prompt_append_path is not None:
+                codex_result["global_prompt_append_path"] = str(config.codex.global_prompt_append_path)
+        result["targets"]["codex"] = codex_result
+        codex_state = {
+            "config_path": str(config.codex.config_path),
+            "skills_dir": str(config.codex.skills_dir),
+            "mcp": [server.name for server in enabled_servers],
+            "skills": [skill.name for skill in skills],
+            "global_prompt_path": str(active_codex_prompt_path) if active_codex_prompt_path is not None else None,
+            "global_prompt_append_path": str(config.codex.global_prompt_append_path)
+            if active_codex_prompt_path is not None and config.codex.global_prompt_append_path is not None
+            else None,
+        }
+    elif previous_codex_config_path is not None:
+        codex_original = previous_codex_config_path.read_text(encoding="utf-8") if previous_codex_config_path.exists() else ""
+        codex_config_payload = (
+            previous_codex_config_path,
+            build_codex_config_payload(codex_original, (), previous_codex_mcp),
+        )
+        if previous_codex_skills_dir is not None:
+            codex_skill_plan = plan_skill_links(previous_codex_skills_dir, [], previous_codex_skills)
 
     if config.claude:
-        sync_claude_config(config.claude.config_path, config.mcp_servers, previous_claude_mcp)
-        result["targets"]["claude"] = {
+        claude_original = config.claude.config_path.read_text(encoding="utf-8") if config.claude.config_path.exists() else ""
+        claude_config_payload = (
+            config.claude.config_path,
+            build_claude_config_payload(claude_original, enabled_servers, previous_claude_mcp),
+        )
+        claude_skill_plan = plan_skill_links(config.claude.skills_dir, skills, previous_claude_skills)
+        claude_result: dict[str, Any] = {
             "config_path": str(config.claude.config_path),
-            "skills": sync_skill_links(config.claude.skills_dir, skills, previous_claude_skills),
+            "skills": {"linked": list(claude_skill_plan.linked), "removed": list(claude_skill_plan.removed)},
         }
+        claude_prompt_text = build_global_prompt(config.global_prompt_path, config.claude.global_prompt_append_path)
+        if claude_prompt_text is not None and config.claude.global_prompt_path is not None:
+            claude_result["global_prompt_path"] = str(config.claude.global_prompt_path)
+            active_claude_prompt_path = config.claude.global_prompt_path
+            if config.claude.global_prompt_append_path is not None:
+                claude_result["global_prompt_append_path"] = str(config.claude.global_prompt_append_path)
+        result["targets"]["claude"] = claude_result
+        claude_state = {
+            "config_path": str(config.claude.config_path),
+            "skills_dir": str(config.claude.skills_dir),
+            "mcp": [server.name for server in enabled_servers],
+            "skills": [skill.name for skill in skills],
+            "global_prompt_path": str(active_claude_prompt_path) if active_claude_prompt_path is not None else None,
+            "global_prompt_append_path": str(config.claude.global_prompt_append_path)
+            if active_claude_prompt_path is not None and config.claude.global_prompt_append_path is not None
+            else None,
+        }
+    elif previous_claude_config_path is not None:
+        claude_original = previous_claude_config_path.read_text(encoding="utf-8") if previous_claude_config_path.exists() else ""
+        claude_config_payload = (
+            previous_claude_config_path,
+            build_claude_config_payload(claude_original, (), previous_claude_mcp),
+        )
+        if previous_claude_skills_dir is not None:
+            claude_skill_plan = plan_skill_links(previous_claude_skills_dir, [], previous_claude_skills)
 
     if config.opencode:
-        sync_opencode_config(
+        opencode_original = config.opencode.config_path.read_text(encoding="utf-8") if config.opencode.config_path.exists() else ""
+        opencode_config_payload = (
             config.opencode.config_path,
-            config.mcp_servers,
-            skills,
-            config.opencode.agent_prefix,
-            previous_opencode_mcp,
-            previous_opencode_agents,
+            build_opencode_config_payload(
+                opencode_original,
+                enabled_servers,
+                skills,
+                config.opencode.agent_prefix,
+                previous_opencode_mcp,
+                previous_opencode_agents,
+            ),
         )
-        result["targets"]["opencode"] = {
+        opencode_result: dict[str, Any] = {
             "config_path": str(config.opencode.config_path),
             "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in skills],
         }
+        opencode_prompt_text = build_global_prompt(config.global_prompt_path, config.opencode.global_prompt_append_path)
+        if opencode_prompt_text is not None and config.opencode.global_prompt_path is not None:
+            opencode_result["global_prompt_path"] = str(config.opencode.global_prompt_path)
+            active_opencode_prompt_path = config.opencode.global_prompt_path
+            if config.opencode.global_prompt_append_path is not None:
+                opencode_result["global_prompt_append_path"] = str(config.opencode.global_prompt_append_path)
+        result["targets"]["opencode"] = opencode_result
+        opencode_state = {
+            "config_path": str(config.opencode.config_path),
+            "agent_prefix": config.opencode.agent_prefix,
+            "mcp": [server.name for server in enabled_servers],
+            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in skills],
+            "global_prompt_path": str(active_opencode_prompt_path) if active_opencode_prompt_path is not None else None,
+            "global_prompt_append_path": str(config.opencode.global_prompt_append_path)
+            if active_opencode_prompt_path is not None and config.opencode.global_prompt_append_path is not None
+            else None,
+        }
+    elif previous_opencode_config_path is not None:
+        opencode_original = previous_opencode_config_path.read_text(encoding="utf-8") if previous_opencode_config_path.exists() else ""
+        opencode_config_payload = (
+            previous_opencode_config_path,
+            build_opencode_config_payload(opencode_original, (), [], "skill-", previous_opencode_mcp, previous_opencode_agents),
+        )
+
+    if codex_config_payload is not None:
+        _atomic_write_text(*codex_config_payload)
+    if claude_config_payload is not None:
+        _atomic_write_text(*claude_config_payload)
+    if opencode_config_payload is not None:
+        _atomic_write_text(*opencode_config_payload)
+    if codex_skill_plan is not None:
+        apply_skill_link_plan(codex_skill_plan)
+    if claude_skill_plan is not None:
+        apply_skill_link_plan(claude_skill_plan)
+    if codex_prompt_text is not None and active_codex_prompt_path is not None:
+        sync_global_prompt(active_codex_prompt_path, codex_prompt_text)
+    _cleanup_previous_output_path(previous_codex_prompt_path, active_codex_prompt_path)
+    if claude_prompt_text is not None and active_claude_prompt_path is not None:
+        sync_global_prompt(active_claude_prompt_path, claude_prompt_text)
+    _cleanup_previous_output_path(previous_claude_prompt_path, active_claude_prompt_path)
+    if opencode_prompt_text is not None and active_opencode_prompt_path is not None:
+        sync_global_prompt(active_opencode_prompt_path, opencode_prompt_text)
+    _cleanup_previous_output_path(previous_opencode_prompt_path, active_opencode_prompt_path)
 
     state = {
-        "codex": {
-            "mcp": [server.name for server in config.mcp_servers],
-            "skills": [skill.name for skill in skills],
-        } if config.codex else {},
-        "claude": {
-            "mcp": [server.name for server in config.mcp_servers],
-            "skills": [skill.name for skill in skills],
-        } if config.claude else {},
-        "opencode": {
-            "mcp": [server.name for server in config.mcp_servers],
-            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in skills],
-        } if config.opencode else {},
+        "codex": codex_state,
+        "claude": claude_state,
+        "opencode": opencode_state,
         "last_synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(state_path, json.dumps(state, indent=2, ensure_ascii=False) + "\n")
     return result
 
 
 def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
     last_fingerprint: str | None = None
     while True:
-        fingerprint = compute_fingerprint(paths.config_path)
-        if fingerprint != last_fingerprint:
-            config = load_sync_config(paths.config_path)
-            result = sync_clients(config, paths.state_path)
-            result["watch_fingerprint"] = fingerprint
-            print(json.dumps(result, ensure_ascii=False), flush=True)
-            last_fingerprint = fingerprint
+        fingerprint: str | None = None
+        try:
+            fingerprint = compute_fingerprint(paths.config_path)
+            if fingerprint != last_fingerprint:
+                config = load_sync_config(paths.config_path)
+                result = sync_clients(config, paths.state_path)
+                result["watch_fingerprint"] = fingerprint
+                print(json.dumps(result, ensure_ascii=False), flush=True)
+                last_fingerprint = fingerprint
+        except Exception as exc:
+            error = {"error": str(exc), "error_type": type(exc).__name__}
+            if fingerprint is not None:
+                error["watch_fingerprint"] = fingerprint
+            print(json.dumps(error, ensure_ascii=False), flush=True)
         time.sleep(interval_seconds)
 
 
@@ -211,6 +402,15 @@ def compute_fingerprint(config_path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(config_path.read_bytes())
     config = load_sync_config(config_path)
+    if config.global_prompt_path is not None:
+        digest.update(config.global_prompt_path.read_bytes())
+    for overlay_path in (
+        config.codex.global_prompt_append_path if config.codex else None,
+        config.claude.global_prompt_append_path if config.claude else None,
+        config.opencode.global_prompt_append_path if config.opencode else None,
+    ):
+        if overlay_path is not None:
+            digest.update(overlay_path.read_bytes())
     for skill in resolve_skills(config.skill_roots, config.include):
         digest.update(skill.skill_file.read_bytes())
     return digest.hexdigest()
@@ -258,53 +458,121 @@ def discover_skills(roots: tuple[SkillRootConfig, ...]) -> dict[str, Path]:
     return discovered
 
 
-def sync_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_names: list[str]) -> dict[str, list[str]]:
-    target_dir.mkdir(parents=True, exist_ok=True)
-    current = {skill.name for skill in skills}
-    removed: list[str] = []
-    linked: list[str] = []
-    for name in previous_names:
+def plan_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_names: list[str]) -> SkillLinkPlan:
+    current = {skill.name: skill for skill in skills}
+    removed_names: list[str] = []
+    linked_names: list[str] = []
+    paths_to_remove: list[Path] = []
+    symlinks_to_create: list[tuple[Path, Path]] = []
+    managed_names = set(previous_names) | set(_load_skill_manifest(target_dir))
+    for name in sorted(managed_names):
         if name in current:
             continue
         path = target_dir / name
         if path.is_symlink() or path.is_file():
-            path.unlink(missing_ok=True)
-            removed.append(name)
+            paths_to_remove.append(path)
+            removed_names.append(name)
     for skill in skills:
         path = target_dir / skill.name
         if path.is_symlink() and path.resolve() == skill.source_dir.resolve():
-            linked.append(skill.name)
+            linked_names.append(skill.name)
             continue
         if path.exists() or path.is_symlink():
             if path.is_symlink():
-                path.unlink()
+                paths_to_remove.append(path)
             else:
                 raise SyncError(f"Refusing to overwrite non-symlink skill path: {path}")
-        path.symlink_to(skill.source_dir, target_is_directory=True)
-        linked.append(skill.name)
-    return {"linked": linked, "removed": removed}
+        symlinks_to_create.append((path, skill.source_dir))
+        linked_names.append(skill.name)
+    return SkillLinkPlan(
+        target_dir=target_dir,
+        linked=tuple(linked_names),
+        removed=tuple(removed_names),
+        paths_to_remove=tuple(dict.fromkeys(paths_to_remove)),
+        symlinks_to_create=tuple(symlinks_to_create),
+    )
 
 
-def sync_codex_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
-    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+def apply_skill_link_plan(plan: SkillLinkPlan) -> dict[str, list[str]]:
+    plan.target_dir.mkdir(parents=True, exist_ok=True)
+    for path in plan.paths_to_remove:
+        path.unlink(missing_ok=True)
+    for path, source_dir in plan.symlinks_to_create:
+        path.symlink_to(source_dir, target_is_directory=True)
+    _write_skill_manifest(plan.target_dir, list(plan.linked))
+    return {"linked": list(plan.linked), "removed": list(plan.removed)}
+
+
+def sync_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_names: list[str]) -> dict[str, list[str]]:
+    return apply_skill_link_plan(plan_skill_links(target_dir, skills, previous_names))
+
+
+def sync_global_prompt(target_path: Path, prompt: str) -> None:
+    _atomic_write_text(target_path, prompt)
+
+
+def _cleanup_previous_output_path(previous_path: Path | None, current_path: Path | None) -> None:
+    if previous_path is None:
+        return
+    previous_write_target = _output_write_target(previous_path)
+    current_write_target = _output_write_target(current_path) if current_path is not None else None
+    if current_path is not None and (
+        previous_path == current_path or previous_write_target == current_write_target
+    ):
+        return
+    if previous_write_target.is_symlink() or previous_write_target.is_file():
+        previous_write_target.unlink(missing_ok=True)
+    if previous_path != previous_write_target and (previous_path.is_symlink() or previous_path.is_file()):
+        previous_path.unlink(missing_ok=True)
+
+
+def build_global_prompt(base_path: Path | None, append_path: Path | None) -> str | None:
+    parts: list[str] = []
+    has_source = False
+    if base_path is not None:
+        has_source = True
+        base_text = base_path.read_text(encoding="utf-8").rstrip()
+        if base_text:
+            parts.append(base_text)
+    if append_path is not None:
+        has_source = True
+        append_text = append_path.read_text(encoding="utf-8").rstrip()
+        if append_text:
+            parts.append(append_text)
+    if not has_source:
+        return None
+    if not parts:
+        return "\n"
+    return "\n\n".join(parts) + "\n"
+
+
+def build_codex_config_payload(original: str, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> str:
     cleaned = _strip_managed_block(original)
     for name in previous_names:
         cleaned = _strip_named_codex_section(cleaned, name)
     managed = _render_codex_block(servers)
-    payload = f"{cleaned.rstrip()}\n\n{managed}\n" if cleaned.strip() else f"{managed}\n"
-    config_path.write_text(payload, encoding="utf-8")
+    return f"{cleaned.rstrip()}\n\n{managed}\n" if cleaned.strip() else f"{managed}\n"
 
 
-def sync_claude_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
-    data = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+def sync_codex_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    _atomic_write_text(config_path, build_codex_config_payload(original, servers, previous_names))
+
+
+def build_claude_config_payload(original: str, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> str:
+    data = json.loads(original) if original.strip() else {}
     current = dict(data.get("mcpServers", {}))
     for name in previous_names:
         current.pop(name, None)
     for server in servers:
         current[server.name] = _render_claude_server(server)
     data["mcpServers"] = current
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def sync_claude_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    _atomic_write_text(config_path, build_claude_config_payload(original, servers, previous_names))
 
 
 def sync_opencode_config(
@@ -315,13 +583,27 @@ def sync_opencode_config(
     previous_mcp_names: list[str],
     previous_agent_names: list[str],
 ) -> None:
-    data = _load_jsonc(config_path)
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    _atomic_write_text(
+        config_path,
+        build_opencode_config_payload(original, servers, skills, agent_prefix, previous_mcp_names, previous_agent_names),
+    )
+
+
+def build_opencode_config_payload(
+    original: str,
+    servers: tuple[McpServerConfig, ...],
+    skills: list[ResolvedSkill],
+    agent_prefix: str,
+    previous_mcp_names: list[str],
+    previous_agent_names: list[str],
+) -> str:
+    data = _load_jsonc_text(original)
     current_mcp = dict(data.get("mcp", {}))
     for name in previous_mcp_names:
         current_mcp.pop(name, None)
     for server in servers:
         current_mcp[server.name] = _render_opencode_server(server)
-    data["mcp"] = current_mcp
 
     current_agents = dict(data.get("agent", {}))
     for name in previous_agent_names:
@@ -332,10 +614,13 @@ def sync_opencode_config(
             "mode": "subagent",
             "prompt": skill.prompt,
         }
-    data["agent"] = current_agents
 
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    payload = original if original.strip() else "{\n}\n"
+    payload = _upsert_jsonc_top_level_value(payload, "mcp", current_mcp)
+    payload = _upsert_jsonc_top_level_value(payload, "agent", current_agents)
+    if not payload.endswith("\n"):
+        payload += "\n"
+    return payload
 
 
 def add_mcp_server(config_path: Path, server: McpServerConfig) -> dict[str, Any]:
@@ -343,7 +628,7 @@ def add_mcp_server(config_path: Path, server: McpServerConfig) -> dict[str, Any]
     current = dict(data.get("mcpServers", {}))
     current[server.name] = _render_source_server(server)
     data["mcpServers"] = current
-    config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     return {"added": server.name}
 
 
@@ -353,13 +638,22 @@ def remove_mcp_server(config_path: Path, name: str) -> dict[str, Any]:
     existed = name in current
     current.pop(name, None)
     data["mcpServers"] = current
-    config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     return {"removed": existed, "name": name}
 
 
 def install_service(paths: SyncPaths, interval_seconds: float) -> dict[str, Any]:
-    paths.service_path.parent.mkdir(parents=True, exist_ok=True)
     cli_path = paths.repo_root / ".venv" / "bin" / "ai-config-sync"
+    exec_start = " ".join(
+        [
+            _systemd_quote(str(cli_path)),
+            "sync-watch",
+            "--config",
+            _systemd_quote(str(paths.config_path)),
+            "--interval",
+            str(interval_seconds),
+        ]
+    )
     content = (
         "[Unit]\n"
         "Description=AI config sync watch\n"
@@ -367,13 +661,13 @@ def install_service(paths: SyncPaths, interval_seconds: float) -> dict[str, Any]
         "[Service]\n"
         "Type=simple\n"
         f"WorkingDirectory={paths.repo_root}\n"
-        f"ExecStart={cli_path} sync-watch --config {paths.config_path} --interval {interval_seconds}\n"
+        f"ExecStart={exec_start}\n"
         "Restart=always\n"
         "RestartSec=2\n\n"
         "[Install]\n"
         "WantedBy=default.target\n"
     )
-    paths.service_path.write_text(content, encoding="utf-8")
+    _atomic_write_text(paths.service_path, content)
     return {"installed": True, "service_path": str(paths.service_path)}
 
 
@@ -417,12 +711,64 @@ def _parse_mcp_server(name: str, item: dict[str, Any]) -> McpServerConfig:
     )
 
 
+def _optional_path(value: Any) -> Path | None:
+    if value in (None, ""):
+        return None
+    return Path(str(value)).expanduser()
+
+
+def _legacy_default_target_paths(target_name: str) -> dict[str, Path | tuple[Path, ...]]:
+    home = Path.home()
+    if target_name == "codex":
+        codex_home = home / ".codex"
+        return {
+            "config_path": codex_home / "config.toml",
+            "skills_dirs": (codex_home / "skills-shared", codex_home / "skills"),
+        }
+    if target_name == "claude":
+        return {
+            "config_path": home / ".claude.json",
+            "skills_dirs": (home / ".claude" / "skills",),
+        }
+    if target_name == "opencode":
+        return {
+            "config_path": home / ".config" / "opencode" / "opencode.jsonc",
+            "skills_dirs": (),
+        }
+    raise ValueError(f"Unknown target name: {target_name}")
+
+
+def _infer_legacy_config_path(config_path: Path, previous_names: list[str]) -> Path | None:
+    if not previous_names or not config_path.exists():
+        return None
+    return config_path
+
+
+def _infer_legacy_skills_dir(config_path: Path, previous_names: list[str], candidates: tuple[str, ...]) -> Path | None:
+    return _infer_legacy_skills_dir_from_candidates(
+        previous_names,
+        tuple(config_path.parent / candidate for candidate in candidates),
+    )
+
+
+def _infer_legacy_skills_dir_from_candidates(previous_names: list[str], candidates: tuple[Path, ...]) -> Path | None:
+    if not previous_names:
+        return None
+    for path in candidates:
+        if not path.is_dir():
+            continue
+        if _skill_manifest_path(path).exists():
+            return path
+        for name in previous_names:
+            if (path / name).exists() or (path / name).is_symlink():
+                return path
+    return None
+
+
 def _render_source_server(server: McpServerConfig) -> dict[str, Any]:
     payload: dict[str, Any] = {"type": server.transport, "enabled": server.enabled}
     if server.transport == "stdio":
-        if not server.command:
-            raise SyncError(f"Missing command for stdio server '{server.name}'")
-        payload["command"] = server.command
+        payload["command"] = _require_stdio_command(server)
         if server.args:
             payload["args"] = list(server.args)
         if server.cwd:
@@ -447,11 +793,12 @@ def _render_codex_block(servers: tuple[McpServerConfig, ...]) -> str:
     for server in servers:
         if server.transport != "stdio":
             raise SyncError(f"Codex sync currently supports only stdio MCP servers: {server.name}")
+        command = _require_stdio_command(server)
         lines.extend(
             [
                 f"[mcp_servers.{server.name}]",
                 'type = "stdio"',
-                f'command = "{_escape(server.command or "")}"',
+                f'command = "{_escape(command)}"',
             ]
         )
         if server.args:
@@ -475,7 +822,7 @@ def _render_claude_server(server: McpServerConfig) -> dict[str, Any]:
     if server.transport == "stdio":
         return {
             "type": "stdio",
-            "command": server.command,
+            "command": _require_stdio_command(server),
             "args": list(server.args),
             "env": server.env or {},
         }
@@ -489,7 +836,7 @@ def _render_opencode_server(server: McpServerConfig) -> dict[str, Any]:
     if server.transport == "stdio":
         payload: dict[str, Any] = {
             "type": "local",
-            "command": [server.command, *server.args],
+            "command": [_require_stdio_command(server), *server.args],
             "enabled": server.enabled,
         }
         if server.env:
@@ -529,8 +876,16 @@ def _strip_named_codex_section(content: str, name: str) -> str:
 def _load_jsonc(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    text = path.read_text(encoding="utf-8")
-    return json.loads(_strip_jsonc_comments(text)) if text.strip() else {}
+    return _load_jsonc_text(path.read_text(encoding="utf-8"))
+
+
+def _load_jsonc_text(text: str) -> dict[str, Any]:
+    if not text.strip():
+        return {}
+    try:
+        return json.loads(_strip_jsonc_comments(text))
+    except json.JSONDecodeError as exc:
+        raise SyncError(f"Invalid JSONC object entry: {exc.msg}") from exc
 
 
 def _strip_jsonc_comments(text: str) -> str:
@@ -586,6 +941,253 @@ def _strip_jsonc_comments(text: str) -> str:
     return "".join(result)
 
 
+def _upsert_jsonc_top_level_value(text: str, key: str, value: Any) -> str:
+    rendered = _render_jsonc_top_level_entry(key, value)
+    span = _find_jsonc_top_level_key_span(text, key)
+    if span is not None:
+        start, end, has_trailing_comma = span
+        replacement = rendered + ("," if has_trailing_comma else "")
+        return text[:start] + replacement + text[end:]
+    return _insert_jsonc_top_level_entry(text, rendered)
+
+
+def _render_jsonc_top_level_entry(key: str, value: Any) -> str:
+    rendered = json.dumps(value, indent=2, ensure_ascii=False)
+    lines = rendered.splitlines()
+    if len(lines) == 1:
+        return f'  "{key}": {lines[0]}'
+    return f'  "{key}": {lines[0]}\n' + "\n".join(f"  {line}" for line in lines[1:])
+
+
+def _find_jsonc_top_level_key_span(text: str, key: str) -> tuple[int, int, bool] | None:
+    root_start, _ = _find_jsonc_root_object_span(text)
+    index = root_start + 1
+    while True:
+        index = _skip_jsonc_trivia(text, index)
+        if index >= len(text) or text[index] == "}":
+            return None
+        entry_start = index
+        if text[index] != '"':
+            raise SyncError("OpenCode config must use quoted top-level keys")
+        key_end, parsed_key = _consume_json_string(text, index)
+        index = _skip_jsonc_trivia(text, key_end)
+        if index >= len(text) or text[index] != ":":
+            raise SyncError("Invalid JSONC object entry")
+        value_start = _skip_jsonc_trivia(text, index + 1)
+        value_end = _consume_jsonc_value(text, value_start)
+        index = _skip_jsonc_trivia(text, value_end)
+        has_trailing_comma = index < len(text) and text[index] == ","
+        entry_end = index + 1 if has_trailing_comma else index
+        if parsed_key == key:
+            return entry_start, entry_end, has_trailing_comma
+        index = entry_end
+
+
+def _insert_jsonc_top_level_entry(text: str, entry: str) -> str:
+    _, root_end = _find_jsonc_root_object_span(text)
+    closing_brace_index = root_end - 1
+    if not _jsonc_top_level_has_entries(text):
+        return text[:closing_brace_index] + f"{entry}\n" + text[closing_brace_index:]
+    last_entry_end = _find_last_jsonc_top_level_entry_end(text)
+    return text[:last_entry_end] + f",\n{entry}" + text[last_entry_end:]
+
+
+def _jsonc_top_level_has_entries(text: str) -> bool:
+    root_start, _ = _find_jsonc_root_object_span(text)
+    index = _skip_jsonc_trivia(text, root_start + 1)
+    return index < len(text) and text[index] != "}"
+
+
+def _find_last_jsonc_top_level_entry_end(text: str) -> int:
+    root_start, _ = _find_jsonc_root_object_span(text)
+    index = root_start + 1
+    last_entry_end: int | None = None
+    while True:
+        index = _skip_jsonc_trivia(text, index)
+        if index >= len(text) or text[index] == "}":
+            break
+        if text[index] != '"':
+            raise SyncError("OpenCode config must use quoted top-level keys")
+        key_end, _ = _consume_json_string(text, index)
+        index = _skip_jsonc_trivia(text, key_end)
+        if index >= len(text) or text[index] != ":":
+            raise SyncError("Invalid JSONC object entry")
+        value_start = _skip_jsonc_trivia(text, index + 1)
+        value_end = _consume_jsonc_value(text, value_start)
+        last_entry_end = value_end
+        index = _skip_jsonc_trivia(text, value_end)
+        if index < len(text) and text[index] == ",":
+            index += 1
+            continue
+        break
+    if last_entry_end is None:
+        raise SyncError("OpenCode config has no top-level entries to append after")
+    return last_entry_end
+
+
+def _find_jsonc_root_object_span(text: str) -> tuple[int, int]:
+    root_start = _skip_jsonc_trivia(text, 0)
+    if root_start >= len(text) or text[root_start] != "{":
+        raise SyncError("OpenCode config must be a JSON object")
+    return root_start, _consume_jsonc_object(text, root_start)
+
+
+def _consume_jsonc_object(text: str, index: int) -> int:
+    depth = 0
+    in_string = False
+    escaped = False
+    string_char = ""
+    in_line_comment = False
+    in_block_comment = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if in_line_comment:
+            if char == "\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            if char == "*" and next_char == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == string_char:
+                in_string = False
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            in_string = True
+            string_char = char
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if char == "{":
+            depth += 1
+            index += 1
+            continue
+        if char == "}":
+            depth -= 1
+            index += 1
+            if depth == 0:
+                return index
+            continue
+        index += 1
+    raise SyncError("OpenCode config must be a JSON object")
+
+
+def _skip_jsonc_trivia(text: str, index: int) -> int:
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if char.isspace():
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            index += 2
+            while index < len(text) and text[index] != "\n":
+                index += 1
+            continue
+        if char == "/" and next_char == "*":
+            index += 2
+            while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == "/"):
+                index += 1
+            index += 2
+            continue
+        break
+    return index
+
+
+def _consume_json_string(text: str, index: int) -> tuple[int, str]:
+    end = index + 1
+    escaped = False
+    while end < len(text):
+        char = text[end]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            end += 1
+            return end, json.loads(text[index:end])
+        end += 1
+    raise SyncError("Unterminated JSON string")
+
+
+def _consume_jsonc_value(text: str, index: int) -> int:
+    depth = 0
+    in_string = False
+    escaped = False
+    string_char = ""
+    in_line_comment = False
+    in_block_comment = False
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if in_line_comment:
+            if char == "\n":
+                in_line_comment = False
+            index += 1
+            continue
+        if in_block_comment:
+            if char == "*" and next_char == "/":
+                in_block_comment = False
+                index += 2
+                continue
+            index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == string_char:
+                in_string = False
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            in_string = True
+            string_char = char
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            in_line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            in_block_comment = True
+            index += 2
+            continue
+        if char in "{[":
+            depth += 1
+            index += 1
+            continue
+        if char in "}]":
+            if depth == 0:
+                return index
+            depth -= 1
+            index += 1
+            continue
+        if depth == 0 and char == ",":
+            return index
+        index += 1
+    return index
+
+
 def _extract_description(prompt: str) -> str | None:
     if not prompt.startswith("---\n"):
         return None
@@ -601,10 +1203,58 @@ def _escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _systemd_quote(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _require_stdio_command(server: McpServerConfig) -> str:
+    if not server.command:
+        raise SyncError(f"Missing command for stdio server '{server.name}'")
+    return server.command
+
+
 def _load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _skill_manifest_path(target_dir: Path) -> Path:
+    return target_dir / SKILL_MANIFEST_NAME
+
+
+def _load_skill_manifest(target_dir: Path) -> list[str]:
+    path = _skill_manifest_path(target_dir)
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise SyncError(f"Invalid skill manifest: {path}")
+    return [str(item) for item in data]
+
+
+def _write_skill_manifest(target_dir: Path, names: list[str]) -> None:
+    _atomic_write_text(
+        _skill_manifest_path(target_dir),
+        json.dumps(sorted(set(names)), indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    write_target = _output_write_target(path)
+    write_target.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = write_target.with_name(f".{write_target.name}.{time.time_ns()}.tmp")
+    try:
+        temp_path.write_text(content, encoding="utf-8")
+        temp_path.replace(write_target)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+
+def _output_write_target(path: Path) -> Path:
+    return path.resolve() if path.is_symlink() else path
 
 
 def _run_systemctl(*args: str, check: bool = True) -> dict[str, Any]:

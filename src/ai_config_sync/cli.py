@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
+import time
 from pathlib import Path
+from typing import Any, Callable
 
 from ai_config_sync.sync import (
     McpServerConfig,
@@ -28,6 +32,103 @@ def _parse_pairs(entries: list[str], label: str) -> dict[str, str]:
         key, value = entry.split("=", 1)
         result[key] = value
     return result
+
+
+def _looks_like_repo_root(path: Path) -> bool:
+    return (path / "shared-ai-config.json").is_file() and (path / "pyproject.toml").is_file()
+
+
+def _iter_candidate_dirs(path: Path) -> list[Path]:
+    resolved = path.resolve()
+    start = resolved if resolved.is_dir() else resolved.parent
+    return [start, *start.parents]
+
+
+def _resolve_repo_root(
+    entrypoint: Path | None = None,
+    module_path: Path | None = None,
+    cwd: Path | None = None,
+) -> Path:
+    candidates = [
+        entrypoint or Path(sys.argv[0]),
+        cwd or Path.cwd(),
+        module_path or Path(__file__),
+    ]
+    for candidate in candidates:
+        for directory in _iter_candidate_dirs(candidate):
+            if _looks_like_repo_root(directory):
+                return directory
+    return Path(__file__).resolve().parents[2]
+
+
+def _run_config_update(
+    paths: Any,
+    update: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    original_text = paths.config_path.read_text(encoding="utf-8") if paths.config_path.exists() else None
+    snapshots: dict[Path, bytes | None] = {}
+    try:
+        result = update(paths.config_path)
+        config = load_sync_config(paths.config_path)
+        snapshots = _snapshot_managed_files(config, paths.state_path)
+        result["sync"] = sync_clients(config, paths.state_path)
+        return result
+    except Exception:
+        if original_text is None:
+            paths.config_path.unlink(missing_ok=True)
+        else:
+            _atomic_write_text(paths.config_path, original_text)
+        _restore_managed_files(snapshots)
+        raise
+
+
+def _managed_output_paths(config: Any, state_path: Path) -> list[Path]:
+    paths: list[Path] = [state_path]
+    for target in (config.codex, config.claude, config.opencode):
+        if target is None:
+            continue
+        paths.append(target.config_path)
+        prompt_path = getattr(target, "global_prompt_path", None)
+        if prompt_path is not None:
+            paths.append(prompt_path)
+    unique_paths: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        write_target = path.resolve() if path.is_symlink() else path
+        if write_target in seen:
+            continue
+        seen.add(write_target)
+        unique_paths.append(write_target)
+    return unique_paths
+
+
+def _snapshot_managed_files(config: Any, state_path: Path) -> dict[Path, bytes | None]:
+    return {
+        path: path.read_bytes() if path.exists() else None
+        for path in _managed_output_paths(config, state_path)
+    }
+
+
+def _restore_managed_files(snapshots: dict[Path, bytes | None]) -> None:
+    for path, content in snapshots.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+            continue
+        _atomic_write_bytes(path, content)
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    _atomic_write_bytes(path, content.encode("utf-8"))
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{time.time_ns()}.tmp")
+    try:
+        temp_path.write_bytes(content)
+        os.replace(temp_path, path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = _resolve_repo_root()
     paths = default_paths(repo_root, Path(args.config) if hasattr(args, "config") and args.config else None)
     try:
         if args.command == "sync-once":
@@ -102,27 +203,28 @@ def main() -> None:
         if args.command == "mcp-add":
             env = _parse_pairs(args.env, "env")
             headers = _parse_pairs(args.header, "header")
-            result = add_mcp_server(
-                paths.config_path,
-                McpServerConfig(
-                    name=args.name,
-                    transport=args.transport,
-                    command=args.server_command,
-                    args=tuple(args.arg),
-                    cwd=args.cwd,
-                    env=env or None,
-                    url=args.url,
-                    headers=headers or None,
-                    tool_timeout_sec=args.tool_timeout,
-                    enabled=not args.disabled,
+            result = _run_config_update(
+                paths,
+                lambda config_path: add_mcp_server(
+                    config_path,
+                    McpServerConfig(
+                        name=args.name,
+                        transport=args.transport,
+                        command=args.server_command,
+                        args=tuple(args.arg),
+                        cwd=args.cwd,
+                        env=env or None,
+                        url=args.url,
+                        headers=headers or None,
+                        tool_timeout_sec=args.tool_timeout,
+                        enabled=not args.disabled,
+                    ),
                 ),
             )
-            result["sync"] = sync_clients(load_sync_config(paths.config_path), paths.state_path)
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return
         if args.command == "mcp-remove":
-            result = remove_mcp_server(paths.config_path, args.name)
-            result["sync"] = sync_clients(load_sync_config(paths.config_path), paths.state_path)
+            result = _run_config_update(paths, lambda config_path: remove_mcp_server(config_path, args.name))
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return
         parser.error(f"Unknown command: {args.command}")

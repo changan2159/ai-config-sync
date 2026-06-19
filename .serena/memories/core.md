@@ -1,0 +1,11 @@
+- Purpose: sync shared MCP server definitions, shared skill sources, and a shared global prompt across Codex, Claude Code, and OpenCode.
+- Primary source config: `shared-ai-config.json`.
+- Shared global prompt source: `shared-global-prompt.md`.
+- Prompt model: shared core prompt plus optional per-target overlay files; Codex, Claude, and OpenCode each currently append their own overlay files after the shared core.
+- Main implementation: `src/ai_config_sync/sync.py` owns config loading, skill discovery, target rendering, state tracking, and service helpers.
+- CLI entrypoint: `src/ai_config_sync/cli.py` exposes one-shot sync, watch mode, service control, and MCP add/remove commands.
+- Tests: `tests/test_sync.py` covers target updates, stale entry removal, source-config MCP edits, service helpers, and skill resolution.
+- Important behavior: Codex and Claude receive skill directory symlinks; OpenCode receives generated `agent` entries whose prompt is the source `SKILL.md` content.
+- Important behavior: optional `globalPromptPath` sync copies the same prompt file to per-target destinations such as Codex `AGENTS.md`, Claude `CLAUDE.md`, and OpenCode `AGENTS.md`.
+- Important behavior: this repo is separate from Serena lifecycle management; README states `serena-manager` is out of scope.
+- Read `mem:tech_stack` for runtime/tooling, `mem:suggested_commands` for operator commands, and `mem:task_completion` for validation expectations.

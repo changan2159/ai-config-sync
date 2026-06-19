@@ -32,19 +32,26 @@
       "prefix": ""
     }
   ],
+  "globalPromptPath": "/home/admin101/projects/2026/ai-config-sync/shared-global-prompt.md",
   "include": ["*"],
   "targets": {
     "codex": {
       "configPath": "/home/admin101/.codex/config.toml",
-      "skillsDir": "/home/admin101/.codex/skills-shared"
+      "skillsDir": "/home/admin101/.codex/skills-shared",
+      "globalPromptPath": "/home/admin101/.codex/AGENTS.md",
+      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/codex-global-prompt.md"
     },
     "claude": {
       "configPath": "/home/admin101/.claude.json",
-      "skillsDir": "/home/admin101/.claude/skills"
+      "skillsDir": "/home/admin101/.claude/skills",
+      "globalPromptPath": "/home/admin101/.claude/CLAUDE.md",
+      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/claude-global-prompt.md"
     },
     "opencode": {
       "configPath": "/home/admin101/.config/opencode/opencode.jsonc",
-      "agentPrefix": "skill-"
+      "agentPrefix": "skill-",
+      "globalPromptPath": "/home/admin101/.config/opencode/AGENTS.md",
+      "globalPromptAppendPath": "/home/admin101/projects/2026/ai-config-sync/opencode-global-prompt.md"
     }
   }
 }

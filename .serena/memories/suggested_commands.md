@@ -1,0 +1,9 @@
+- Create/update targets once: `.venv/bin/python -m ai_config_sync.cli sync-once`
+- Run the watcher in foreground: `.venv/bin/python -m ai_config_sync.cli sync-watch`
+- Start persistent user service: `.venv/bin/python -m ai_config_sync.cli sync-service-start`
+- Check service status: `.venv/bin/python -m ai_config_sync.cli sync-service-status`
+- Stop service: `.venv/bin/python -m ai_config_sync.cli sync-service-stop`
+- Add one shared MCP server: `.venv/bin/python -m ai_config_sync.cli mcp-add <name> --server-command <cmd> [--arg ...]`
+- Remove one shared MCP server: `.venv/bin/python -m ai_config_sync.cli mcp-remove <name>`
+- Run tests: `.venv/bin/pytest`
+- Read effective shared source config first when behavior seems wrong: `shared-ai-config.json`.

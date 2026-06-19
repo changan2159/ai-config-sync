@@ -1,0 +1,7 @@
+- Keep text I/O explicitly UTF-8; implementation and tests already use `encoding="utf-8"` consistently.
+- Centralize behavior in `sync.py`; CLI should stay thin and delegate to sync/service helpers.
+- Shared skill discovery is directory-based: each skill must be a directory containing `SKILL.md`.
+- Skill names may be prefixed per root from `shared-ai-config.json`; include/exclude filtering is source-config driven.
+- Target-specific rendering differs by client: Codex uses TOML MCP blocks, Claude uses JSON `mcpServers`, OpenCode uses JSONC-style data with `mcp` plus generated `agent` entries.
+- Shared global prompt sync is layered file-copy based: `shared-ai-config.json` may define a top-level `globalPromptPath`, per-target `globalPromptPath` destinations, and optional per-target `globalPromptAppendPath` overlays; prompt changes from both the shared core and any client overlays must participate in watch fingerprints.
+- Sync code removes previously managed entries using saved state before writing current config; preserve that cleanup model when extending targets.

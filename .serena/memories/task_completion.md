@@ -1,0 +1,4 @@
+- For behavior changes, run `.venv/bin/pytest` from repo root.
+- If target rendering or sync behavior changed, validate with at least the sync tests in `tests/test_sync.py`.
+- If CLI commands changed, also run the relevant command locally in one-shot mode when safe, typically `.venv/bin/python -m ai_config_sync.cli sync-once` against the intended config.
+- Before closing a non-trivial change, inspect the diff for cross-client regressions: Codex MCP block handling, Claude `mcpServers`, OpenCode `mcp`/`agent`, skill symlink cleanup, and state-file updates.
