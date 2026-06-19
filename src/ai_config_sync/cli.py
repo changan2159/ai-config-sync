@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_config_sync.mcp_runtime import preflight_mcp
+from ai_config_sync.mcp_runtime import preflight_mcp, reap_mcp
 from ai_config_sync.mcp_updates import (
     update_all_mcp,
     update_codegraph,
@@ -203,6 +203,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("mcp-preflight")
 
+    mcp_clean = subparsers.add_parser("mcp-clean")
+    mcp_clean.add_argument("--reap-interval", type=float, default=0, help="Run a continuous reap loop at the given interval (seconds); 0 = one-shot")
+
     return parser
 
 
@@ -247,6 +250,14 @@ def main() -> None:
             return
         if args.command == "mcp-preflight":
             print(json.dumps(preflight_mcp(repo_root), indent=2, ensure_ascii=False))
+            return
+        if args.command == "mcp-clean":
+            if args.reap_interval > 0:
+                while True:
+                    print(json.dumps(reap_mcp(repo_root), ensure_ascii=False), flush=True)
+                    time.sleep(args.reap_interval)
+            else:
+                print(json.dumps(reap_mcp(repo_root), indent=2, ensure_ascii=False))
             return
         paths = default_paths(repo_root, Path(args.config) if hasattr(args, "config") and args.config else None)
         if args.command == "sync-once":

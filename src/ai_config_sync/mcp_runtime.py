@@ -35,6 +35,37 @@ class ToolchainPaths:
     runtime_env_path: Path
 
 
+def _serena_manager_venv_python(repo_root: Path) -> Path | None:
+    candidate = repo_root / "vendor" / "mcp" / "serena-manager" / ".venv" / "bin" / "python"
+    return candidate if candidate.is_file() else None
+
+
+def _serena_manager_state_root(repo_root: Path) -> Path:
+    return repo_root / "vendor" / "mcp" / "serena-manager" / "state"
+
+
+def reap_mcp(repo_root: Path) -> dict[str, Any]:
+    venv_python = _serena_manager_venv_python(repo_root)
+    if venv_python is None:
+        return {"reaped": [], "cleaned": [], "error": "serena-manager venv not found; run mcp-preflight first"}
+    vendor_src = repo_root / "vendor" / "mcp" / "serena-manager" / "src"
+    code = (
+        "import sys; sys.path.insert(0, " + json.dumps(str(vendor_src)) + "); "
+        "from serena_manager.config import ManagerConfig; "
+        "from serena_manager.manager import SerenaManager; "
+        "from serena_manager.reaper import Reaper; "
+        "vendor_dir = " + json.dumps(str(repo_root / "vendor" / "mcp" / "serena-manager")) + "; "
+        "config = ManagerConfig.default(vendor_dir); "
+        "manager = SerenaManager(config); "
+        "result = Reaper(manager).reap_once(); "
+        "import json; print(json.dumps({"
+        "'cleaned_unhealthy': result.cleaned_unhealthy, "
+        "'cleaned_idle': result.cleaned_idle}))"
+    )
+    result = _run_command([str(venv_python), "-c", code])
+    return json.loads(result.stdout)
+
+
 def preflight_mcp(repo_root: Path, components: Iterable[str] | None = None) -> dict[str, Any]:
     requested = _normalize_components(components)
     paths = _toolchain_paths(repo_root)

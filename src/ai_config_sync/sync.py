@@ -382,7 +382,15 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
 
 
 def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
+    from ai_config_sync.mcp_runtime import reap_mcp
+
+    try:
+        reap_mcp(paths.repo_root)  # clean stale orphans on startup
+    except Exception:
+        pass  # serena manager may not be bootstrapped yet
     last_fingerprint: str | None = None
+    reap_counter = 0
+    reap_interval_cycles = max(1, int(300 / interval_seconds)) if interval_seconds > 0 else 0
     while True:
         fingerprint: str | None = None
         try:
@@ -393,6 +401,18 @@ def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
                 result["watch_fingerprint"] = fingerprint
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 last_fingerprint = fingerprint
+            reap_counter += 1
+            if reap_interval_cycles > 0 and reap_counter >= reap_interval_cycles:
+                reap_counter = 0
+                try:
+                    reap_result = reap_mcp(paths.repo_root)
+                    if reap_result.get("cleaned_idle") or reap_result.get("cleaned_unhealthy"):
+                        print(
+                            json.dumps({"mcp_reap": reap_result}, ensure_ascii=False),
+                            flush=True,
+                        )
+                except Exception:
+                    pass
         except Exception as exc:
             error = {"error": str(exc), "error_type": type(exc).__name__}
             if fingerprint is not None:
