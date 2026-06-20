@@ -66,6 +66,16 @@ class OpencodeTargetConfig:
 
 
 @dataclass(frozen=True)
+class PiTargetConfig:
+    settings_path: Path
+    mcp_config_path: Path
+    skills_dir: Path
+    packages: tuple[str, ...] = ("npm:pi-mcp-adapter",)
+    global_prompt_path: Path | None = None
+    global_prompt_append_path: Path | None = None
+
+
+@dataclass(frozen=True)
 class SyncConfig:
     mcp_servers: tuple[McpServerConfig, ...]
     skill_roots: tuple[SkillRootConfig, ...]
@@ -74,6 +84,7 @@ class SyncConfig:
     codex: CodexTargetConfig | None
     claude: ClaudeTargetConfig | None
     opencode: OpencodeTargetConfig | None
+    pi: PiTargetConfig | None
 
 
 @dataclass(frozen=True)
@@ -145,6 +156,14 @@ def load_sync_config(path: Path) -> SyncConfig:
         global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath"), repo_root),
         global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath"), repo_root),
     ) if "opencode" in targets else None
+    pi = PiTargetConfig(
+        settings_path=_resolve_path(targets["pi"]["settingsPath"], repo_root),
+        mcp_config_path=_resolve_path(targets["pi"]["mcpConfigPath"], repo_root),
+        skills_dir=_resolve_path(targets["pi"]["skillsDir"], repo_root),
+        packages=tuple(str(item) for item in targets["pi"].get("packages", ["npm:pi-mcp-adapter"])),
+        global_prompt_path=_optional_path(targets["pi"].get("globalPromptPath"), repo_root),
+        global_prompt_append_path=_optional_path(targets["pi"].get("globalPromptAppendPath"), repo_root),
+    ) if "pi" in targets else None
     return SyncConfig(
         mcp_servers=mcp_servers,
         skill_roots=roots,
@@ -153,6 +172,7 @@ def load_sync_config(path: Path) -> SyncConfig:
         codex=codex,
         claude=claude,
         opencode=opencode,
+        pi=pi,
     )
 
 
@@ -161,17 +181,24 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_claude_mcp = previous.get("claude", {}).get("mcp", [])
     previous_codex_mcp = previous.get("codex", {}).get("mcp", [])
     previous_opencode_mcp = previous.get("opencode", {}).get("mcp", [])
+    previous_pi_mcp = previous.get("pi", {}).get("mcp", [])
     previous_codex_skills = previous.get("codex", {}).get("skills", [])
     previous_claude_skills = previous.get("claude", {}).get("skills", [])
     previous_opencode_agents = previous.get("opencode", {}).get("agents", [])
+    previous_pi_skills = previous.get("pi", {}).get("skills", [])
+    previous_pi_packages = previous.get("pi", {}).get("packages", [])
     previous_codex_prompt_path = _optional_path(previous.get("codex", {}).get("global_prompt_path"))
     previous_claude_prompt_path = _optional_path(previous.get("claude", {}).get("global_prompt_path"))
     previous_opencode_prompt_path = _optional_path(previous.get("opencode", {}).get("global_prompt_path"))
+    previous_pi_prompt_path = _optional_path(previous.get("pi", {}).get("global_prompt_path"))
     previous_codex_config_path = _optional_path(previous.get("codex", {}).get("config_path"))
     previous_claude_config_path = _optional_path(previous.get("claude", {}).get("config_path"))
     previous_opencode_config_path = _optional_path(previous.get("opencode", {}).get("config_path"))
+    previous_pi_settings_path = _optional_path(previous.get("pi", {}).get("settings_path"))
+    previous_pi_mcp_config_path = _optional_path(previous.get("pi", {}).get("mcp_config_path"))
     previous_codex_skills_dir = _optional_path(previous.get("codex", {}).get("skills_dir"))
     previous_claude_skills_dir = _optional_path(previous.get("claude", {}).get("skills_dir"))
+    previous_pi_skills_dir = _optional_path(previous.get("pi", {}).get("skills_dir"))
     codex_legacy_paths = _legacy_default_target_paths("codex")
     claude_legacy_paths = _legacy_default_target_paths("claude")
     opencode_legacy_paths = _legacy_default_target_paths("opencode")
@@ -224,17 +251,23 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     codex_state: dict[str, Any] = {}
     claude_state: dict[str, Any] = {}
     opencode_state: dict[str, Any] = {}
+    pi_state: dict[str, Any] = {}
     codex_config_payload: tuple[Path, str] | None = None
     claude_config_payload: tuple[Path, str] | None = None
     opencode_config_payload: tuple[Path, str] | None = None
+    pi_settings_payload: tuple[Path, str] | None = None
+    pi_mcp_config_payload: tuple[Path, str] | None = None
     codex_skill_plan: SkillLinkPlan | None = None
     claude_skill_plan: SkillLinkPlan | None = None
+    pi_skill_plan: SkillLinkPlan | None = None
     codex_prompt_text: str | None = None
     claude_prompt_text: str | None = None
     opencode_prompt_text: str | None = None
+    pi_prompt_text: str | None = None
     active_codex_prompt_path: Path | None = None
     active_claude_prompt_path: Path | None = None
     active_opencode_prompt_path: Path | None = None
+    active_pi_prompt_path: Path | None = None
 
     if config.codex:
         codex_original = config.codex.config_path.read_text(encoding="utf-8") if config.codex.config_path.exists() else ""
@@ -351,16 +384,87 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             build_opencode_config_payload(opencode_original, (), [], "skill-", previous_opencode_mcp, previous_opencode_agents),
         )
 
+    if config.pi:
+        pi_settings_original = config.pi.settings_path.read_text(encoding="utf-8") if config.pi.settings_path.exists() else ""
+        pi_settings_payload = (
+            config.pi.settings_path,
+            build_pi_settings_payload(
+                pi_settings_original,
+                (str(config.pi.skills_dir),),
+                config.pi.packages,
+                previous_pi_packages,
+                [str(previous_pi_skills_dir)] if previous_pi_skills_dir is not None else [],
+            ),
+        )
+        pi_mcp_original = config.pi.mcp_config_path.read_text(encoding="utf-8") if config.pi.mcp_config_path.exists() else ""
+        pi_mcp_config_payload = (
+            config.pi.mcp_config_path,
+            build_pi_mcp_config_payload(pi_mcp_original, enabled_servers, previous_pi_mcp),
+        )
+        pi_skill_plan = plan_skill_links(config.pi.skills_dir, skills, previous_pi_skills)
+        pi_result: dict[str, Any] = {
+            "settings_path": str(config.pi.settings_path),
+            "mcp_config_path": str(config.pi.mcp_config_path),
+            "packages": list(config.pi.packages),
+            "skills": {"linked": list(pi_skill_plan.linked), "removed": list(pi_skill_plan.removed)},
+        }
+        pi_prompt_text = build_global_prompt(config.global_prompt_path, config.pi.global_prompt_append_path)
+        if pi_prompt_text is not None and config.pi.global_prompt_path is not None:
+            pi_result["global_prompt_path"] = str(config.pi.global_prompt_path)
+            active_pi_prompt_path = config.pi.global_prompt_path
+            if config.pi.global_prompt_append_path is not None:
+                pi_result["global_prompt_append_path"] = str(config.pi.global_prompt_append_path)
+        result["targets"]["pi"] = pi_result
+        pi_state = {
+            "settings_path": str(config.pi.settings_path),
+            "mcp_config_path": str(config.pi.mcp_config_path),
+            "skills_dir": str(config.pi.skills_dir),
+            "packages": list(config.pi.packages),
+            "mcp": [server.name for server in enabled_servers],
+            "skills": [skill.name for skill in skills],
+            "global_prompt_path": str(active_pi_prompt_path) if active_pi_prompt_path is not None else None,
+            "global_prompt_append_path": str(config.pi.global_prompt_append_path)
+            if active_pi_prompt_path is not None and config.pi.global_prompt_append_path is not None
+            else None,
+        }
+    elif previous_pi_settings_path is not None or previous_pi_mcp_config_path is not None:
+        if previous_pi_settings_path is not None:
+            pi_settings_original = previous_pi_settings_path.read_text(encoding="utf-8") if previous_pi_settings_path.exists() else ""
+            pi_settings_payload = (
+                previous_pi_settings_path,
+                build_pi_settings_payload(
+                    pi_settings_original,
+                    (),
+                    (),
+                    previous_pi_packages,
+                    [str(previous_pi_skills_dir)] if previous_pi_skills_dir is not None else [],
+                ),
+            )
+        if previous_pi_mcp_config_path is not None:
+            pi_mcp_original = previous_pi_mcp_config_path.read_text(encoding="utf-8") if previous_pi_mcp_config_path.exists() else ""
+            pi_mcp_config_payload = (
+                previous_pi_mcp_config_path,
+                build_pi_mcp_config_payload(pi_mcp_original, (), previous_pi_mcp),
+            )
+        if previous_pi_skills_dir is not None:
+            pi_skill_plan = plan_skill_links(previous_pi_skills_dir, [], previous_pi_skills)
+
     if codex_config_payload is not None:
         _atomic_write_text(*codex_config_payload)
     if claude_config_payload is not None:
         _atomic_write_text(*claude_config_payload)
     if opencode_config_payload is not None:
         _atomic_write_text(*opencode_config_payload)
+    if pi_settings_payload is not None:
+        _atomic_write_text(*pi_settings_payload)
+    if pi_mcp_config_payload is not None:
+        _atomic_write_text(*pi_mcp_config_payload)
     if codex_skill_plan is not None:
         apply_skill_link_plan(codex_skill_plan)
     if claude_skill_plan is not None:
         apply_skill_link_plan(claude_skill_plan)
+    if pi_skill_plan is not None:
+        apply_skill_link_plan(pi_skill_plan)
     if codex_prompt_text is not None and active_codex_prompt_path is not None:
         sync_global_prompt(active_codex_prompt_path, codex_prompt_text)
     _cleanup_previous_output_path(previous_codex_prompt_path, active_codex_prompt_path)
@@ -370,11 +474,15 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     if opencode_prompt_text is not None and active_opencode_prompt_path is not None:
         sync_global_prompt(active_opencode_prompt_path, opencode_prompt_text)
     _cleanup_previous_output_path(previous_opencode_prompt_path, active_opencode_prompt_path)
+    if pi_prompt_text is not None and active_pi_prompt_path is not None:
+        sync_global_prompt(active_pi_prompt_path, pi_prompt_text)
+    _cleanup_previous_output_path(previous_pi_prompt_path, active_pi_prompt_path)
 
     state = {
         "codex": codex_state,
         "claude": claude_state,
         "opencode": opencode_state,
+        "pi": pi_state,
         "last_synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _atomic_write_text(state_path, json.dumps(state, indent=2, ensure_ascii=False) + "\n")
@@ -431,6 +539,7 @@ def compute_fingerprint(config_path: Path) -> str:
         config.codex.global_prompt_append_path if config.codex else None,
         config.claude.global_prompt_append_path if config.claude else None,
         config.opencode.global_prompt_append_path if config.opencode else None,
+        config.pi.global_prompt_append_path if config.pi else None,
     ):
         if overlay_path is not None:
             digest.update(overlay_path.read_bytes())
@@ -611,6 +720,59 @@ def sync_opencode_config(
         config_path,
         build_opencode_config_payload(original, servers, skills, agent_prefix, previous_mcp_names, previous_agent_names),
     )
+
+
+def sync_pi_settings(
+    settings_path: Path,
+    skills_dirs: tuple[str, ...],
+    packages: tuple[str, ...],
+    previous_packages: list[str],
+    previous_skills_dirs: list[str],
+) -> None:
+    original = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
+    _atomic_write_text(
+        settings_path,
+        build_pi_settings_payload(original, skills_dirs, packages, previous_packages, previous_skills_dirs),
+    )
+
+
+def build_pi_settings_payload(
+    original: str,
+    skills_dirs: tuple[str, ...],
+    packages: tuple[str, ...],
+    previous_packages: list[str],
+    previous_skills_dirs: list[str],
+) -> str:
+    data = json.loads(original) if original.strip() else {}
+    current_packages = _normalize_string_list(data.get("packages"))
+    for package in previous_packages:
+        current_packages = [item for item in current_packages if item != package]
+    current_packages.extend(package for package in packages if package not in current_packages)
+
+    current_skills = _normalize_string_list(data.get("skills"))
+    for path in previous_skills_dirs:
+        current_skills = [item for item in current_skills if item != path]
+    current_skills.extend(path for path in skills_dirs if path not in current_skills)
+
+    data["packages"] = current_packages
+    data["skills"] = current_skills
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def sync_pi_mcp_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    _atomic_write_text(config_path, build_pi_mcp_config_payload(original, servers, previous_names))
+
+
+def build_pi_mcp_config_payload(original: str, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> str:
+    data = json.loads(original) if original.strip() else {}
+    current = dict(data.get("mcpServers", {}))
+    for name in previous_names:
+        current.pop(name, None)
+    for server in servers:
+        current[server.name] = _render_standard_mcp_server(server)
+    data["mcpServers"] = current
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
 def build_opencode_config_payload(
@@ -887,6 +1049,24 @@ def _render_opencode_server(server: McpServerConfig) -> dict[str, Any]:
         payload["headers"] = server.headers
     if server.tool_timeout_sec is not None:
         payload["timeout"] = server.tool_timeout_sec * 1000
+    return payload
+
+
+def _render_standard_mcp_server(server: McpServerConfig) -> dict[str, Any]:
+    if server.transport == "stdio":
+        payload: dict[str, Any] = {"command": _require_stdio_command(server)}
+        if server.args:
+            payload["args"] = list(server.args)
+        if server.cwd:
+            payload["cwd"] = server.cwd
+        if server.env:
+            payload["env"] = server.env
+        return payload
+    if not server.url:
+        raise SyncError(f"Missing url for remote server '{server.name}'")
+    payload = {"url": server.url}
+    if server.headers:
+        payload["headers"] = server.headers
     return payload
 
 
@@ -1256,6 +1436,12 @@ def _load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_string_list(data: Any) -> list[str]:
+    if not isinstance(data, list):
+        return []
+    return [str(item) for item in data]
 
 
 def _skill_manifest_path(target_dir: Path) -> Path:

@@ -66,25 +66,34 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
     codex_config = tmp_path / "codex" / "config.toml"
     claude_config = tmp_path / "claude" / ".claude.json"
     opencode_config = tmp_path / "opencode" / "opencode.jsonc"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
     shared_prompt = tmp_path / "shared-global-prompt.md"
     codex_overlay = tmp_path / "codex-overlay.md"
     claude_overlay = tmp_path / "claude-overlay.md"
     opencode_overlay = tmp_path / "opencode-overlay.md"
+    pi_overlay = tmp_path / "pi-overlay.md"
     config_path = tmp_path / "shared-ai-config.json"
     state_path = tmp_path / "state" / "sync-state.json"
     codex_prompt = tmp_path / "codex" / "AGENTS.md"
     claude_prompt = tmp_path / "claude" / "CLAUDE.md"
     opencode_prompt = tmp_path / "opencode" / "AGENTS.md"
+    pi_prompt = tmp_path / "pi" / "AGENTS.md"
     codex_config.parent.mkdir(parents=True)
     codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
     claude_config.parent.mkdir(parents=True)
     claude_config.write_text('{"mcpServers":{"manual":{"type":"stdio","command":"/bin/true","args":[],"env":{}}}}\n', encoding="utf-8")
     opencode_config.parent.mkdir(parents=True)
     opencode_config.write_text('{"$schema":"https://opencode.ai/config.json"}\n', encoding="utf-8")
+    pi_settings.parent.mkdir(parents=True)
+    pi_settings.write_text('{"theme":"dark","packages":["keep-me"],"skills":["/manual/skills"]}\n', encoding="utf-8")
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_mcp_config.write_text('{"mcpServers":{"manual":{"command":"/bin/true"}}}\n', encoding="utf-8")
     shared_prompt.write_text("Shared global prompt.\n", encoding="utf-8")
     codex_overlay.write_text("Codex overlay.\n", encoding="utf-8")
     claude_overlay.write_text("Claude overlay.\n", encoding="utf-8")
     opencode_overlay.write_text("OpenCode overlay.\n", encoding="utf-8")
+    pi_overlay.write_text("Pi overlay.\n", encoding="utf-8")
 
     write_config(
         config_path,
@@ -111,6 +120,14 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "globalPromptPath": str(opencode_prompt),
                 "globalPromptAppendPath": str(opencode_overlay),
             },
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter"],
+                "globalPromptPath": str(pi_prompt),
+                "globalPromptAppendPath": str(pi_overlay),
+            },
         },
         servers={"demo": {"type": "stdio", "command": "/bin/echo", "args": ["hello"]}},
         global_prompt_path=str(shared_prompt),
@@ -119,17 +136,31 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
     result = sync_clients(load_sync_config(config_path), state_path)
     assert result["skills"] == ["alpha", "plugin:beta"]
     assert (tmp_path / "claude" / "skills" / "plugin:beta").is_symlink()
+    assert (tmp_path / "pi" / "skills" / "plugin:beta").is_symlink()
     assert codex_prompt.read_text(encoding="utf-8") == "Shared global prompt.\n\nCodex overlay.\n"
     assert claude_prompt.read_text(encoding="utf-8") == "Shared global prompt.\n\nClaude overlay.\n"
     assert opencode_prompt.read_text(encoding="utf-8") == "Shared global prompt.\n\nOpenCode overlay.\n"
+    assert pi_prompt.read_text(encoding="utf-8") == "Shared global prompt.\n\nPi overlay.\n"
     opencode = json.loads(opencode_config.read_text(encoding="utf-8"))
     assert "skill-plugin:beta" in opencode["agent"]
+    pi_settings_data = json.loads(pi_settings.read_text(encoding="utf-8"))
+    assert pi_settings_data["theme"] == "dark"
+    assert pi_settings_data["packages"] == ["keep-me", "npm:pi-mcp-adapter"]
+    assert pi_settings_data["skills"] == ["/manual/skills", str(tmp_path / "pi" / "skills")]
+    pi_mcp_data = json.loads(pi_mcp_config.read_text(encoding="utf-8"))
+    assert pi_mcp_data["mcpServers"]["manual"] == {"command": "/bin/true"}
+    assert pi_mcp_data["mcpServers"]["demo"]["command"] == "/bin/echo"
+    assert pi_mcp_data["mcpServers"]["demo"]["args"] == ["hello"]
     assert result["targets"]["codex"]["global_prompt_path"] == str(codex_prompt)
     assert result["targets"]["codex"]["global_prompt_append_path"] == str(codex_overlay)
     assert result["targets"]["claude"]["global_prompt_path"] == str(claude_prompt)
     assert result["targets"]["claude"]["global_prompt_append_path"] == str(claude_overlay)
     assert result["targets"]["opencode"]["global_prompt_path"] == str(opencode_prompt)
     assert result["targets"]["opencode"]["global_prompt_append_path"] == str(opencode_overlay)
+    assert result["targets"]["pi"]["settings_path"] == str(pi_settings)
+    assert result["targets"]["pi"]["mcp_config_path"] == str(pi_mcp_config)
+    assert result["targets"]["pi"]["global_prompt_path"] == str(pi_prompt)
+    assert result["targets"]["pi"]["global_prompt_append_path"] == str(pi_overlay)
 
     write_config(
         config_path,
@@ -153,15 +184,27 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "globalPromptPath": str(opencode_prompt),
                 "globalPromptAppendPath": str(opencode_overlay),
             },
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter"],
+                "globalPromptPath": str(pi_prompt),
+                "globalPromptAppendPath": str(pi_overlay),
+            },
         },
         servers={"demo2": {"type": "stdio", "command": "/bin/true"}},
         global_prompt_path=str(shared_prompt),
     )
     result = sync_clients(load_sync_config(config_path), state_path)
     assert not (tmp_path / "claude" / "skills" / "plugin:beta").exists()
+    assert not (tmp_path / "pi" / "skills" / "plugin:beta").exists()
     text = codex_config.read_text(encoding="utf-8")
     assert "[mcp_servers.demo]" not in text
     assert "[mcp_servers.demo2]" in text
+    pi_mcp_data = json.loads(pi_mcp_config.read_text(encoding="utf-8"))
+    assert "demo" not in pi_mcp_data["mcpServers"]
+    assert "demo2" in pi_mcp_data["mcpServers"]
 
 
 def test_compute_fingerprint_changes_when_global_prompt_changes(tmp_path: Path) -> None:
@@ -292,7 +335,15 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
                 "skillsDir": "${HOME}/.codex/skills-shared",
                 "globalPromptPath": "${HOME}/.codex/AGENTS.md",
                 "globalPromptAppendPath": "${REPO_ROOT}/codex-global-prompt.md",
-            }
+            },
+            "pi": {
+                "settingsPath": "${HOME}/.pi/agent/settings.json",
+                "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
+                "skillsDir": "${HOME}/.pi/agent/skills-shared",
+                "packages": ["npm:pi-mcp-adapter"],
+                "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
+                "globalPromptAppendPath": "${REPO_ROOT}/pi-global-prompt.md",
+            },
         },
     }
     config_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -307,6 +358,12 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
     assert config.codex is not None
     assert config.codex.config_path == home / ".codex" / "config.toml"
     assert config.codex.global_prompt_append_path == repo_root / "codex-global-prompt.md"
+    assert config.pi is not None
+    assert config.pi.settings_path == home / ".pi" / "agent" / "settings.json"
+    assert config.pi.mcp_config_path == home / ".config" / "mcp" / "mcp.json"
+    assert config.pi.skills_dir == home / ".pi" / "agent" / "skills-shared"
+    assert config.pi.packages == ("npm:pi-mcp-adapter",)
+    assert config.pi.global_prompt_append_path == repo_root / "pi-global-prompt.md"
 
 
 def test_resolve_skills_uses_repo_local_roots_only(tmp_path: Path) -> None:
@@ -811,6 +868,8 @@ def test_renderers_reject_stdio_servers_without_command() -> None:
         sync_module._render_claude_server(server)
     with pytest.raises(SyncError, match="Missing command"):
         sync_module._render_opencode_server(server)
+    with pytest.raises(SyncError, match="Missing command"):
+        sync_module._render_standard_mcp_server(server)
 
 
 def test_sync_clients_removes_managed_outputs_when_target_is_deleted(tmp_path: Path) -> None:
@@ -821,14 +880,21 @@ def test_sync_clients_removes_managed_outputs_when_target_is_deleted(tmp_path: P
     codex_config = tmp_path / "codex" / "config.toml"
     claude_config = tmp_path / "claude" / ".claude.json"
     opencode_config = tmp_path / "opencode" / "opencode.jsonc"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
     codex_skills = tmp_path / "codex" / "skills"
     claude_skills = tmp_path / "claude" / "skills"
+    pi_skills = tmp_path / "pi" / "skills"
     codex_config.parent.mkdir(parents=True)
     claude_config.parent.mkdir(parents=True)
     opencode_config.parent.mkdir(parents=True)
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
     codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
     claude_config.write_text("{}\n", encoding="utf-8")
     opencode_config.write_text("{}\n", encoding="utf-8")
+    pi_settings.write_text('{"packages":["manual","npm:pi-mcp-adapter"],"skills":["/manual/path"]}\n', encoding="utf-8")
+    pi_mcp_config.write_text('{"mcpServers":{"manual":{"command":"/bin/true"}}}\n', encoding="utf-8")
 
     write_config(
         config_path,
@@ -846,6 +912,12 @@ def test_sync_clients_removes_managed_outputs_when_target_is_deleted(tmp_path: P
                 "configPath": str(opencode_config),
                 "agentPrefix": "skill-",
             },
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(pi_skills),
+                "packages": ["npm:pi-mcp-adapter"],
+            },
         },
         servers={"demo": {"type": "stdio", "command": "/bin/echo"}},
     )
@@ -853,6 +925,7 @@ def test_sync_clients_removes_managed_outputs_when_target_is_deleted(tmp_path: P
     sync_clients(load_sync_config(config_path), state_path)
     assert (codex_skills / "alpha").is_symlink()
     assert (claude_skills / "alpha").is_symlink()
+    assert (pi_skills / "alpha").is_symlink()
 
     write_config(config_path, skill_roots=[{"path": str(root)}], targets={}, servers={})
     sync_clients(load_sync_config(config_path), state_path)
@@ -865,6 +938,12 @@ def test_sync_clients_removes_managed_outputs_when_target_is_deleted(tmp_path: P
     opencode_data = sync_module._load_jsonc(opencode_config)
     assert opencode_data["mcp"] == {}
     assert opencode_data["agent"] == {}
+    pi_settings_data = json.loads(pi_settings.read_text(encoding="utf-8"))
+    assert pi_settings_data["packages"] == ["manual"]
+    assert pi_settings_data["skills"] == ["/manual/path"]
+    pi_mcp_data = json.loads(pi_mcp_config.read_text(encoding="utf-8"))
+    assert pi_mcp_data["mcpServers"] == {"manual": {"command": "/bin/true"}}
+    assert not (pi_skills / "alpha").exists()
 
 
 def test_sync_clients_preflights_all_targets_before_writing(tmp_path: Path) -> None:

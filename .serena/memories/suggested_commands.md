@@ -6,4 +6,6 @@
 - Add one shared MCP server: `.venv/bin/python -m ai_config_sync.cli mcp-add <name> --server-command <cmd> [--arg ...]`
 - Remove one shared MCP server: `.venv/bin/python -m ai_config_sync.cli mcp-remove <name>`
 - Run tests: `.venv/bin/pytest`
+- Install or verify Pi locally: `npm install -g --ignore-scripts --prefix "$HOME/.local" @earendil-works/pi-coding-agent && pi --version`
+- Install the Pi MCP bridge package: `pi install npm:pi-mcp-adapter`
 - Read effective shared source config first when behavior seems wrong: `shared-ai-config.json`.

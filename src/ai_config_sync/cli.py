@@ -106,6 +106,11 @@ def _managed_output_paths(config: Any, state_path: Path) -> list[Path]:
         prompt_path = getattr(target, "global_prompt_path", None)
         if prompt_path is not None:
             paths.append(prompt_path)
+    if config.pi is not None:
+        paths.append(config.pi.settings_path)
+        paths.append(config.pi.mcp_config_path)
+        if config.pi.global_prompt_path is not None:
+            paths.append(config.pi.global_prompt_path)
     unique_paths: list[Path] = []
     seen: set[Path] = set()
     for path in paths:

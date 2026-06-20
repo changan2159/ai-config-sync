@@ -5,6 +5,7 @@
 - Codex
 - Claude Code
 - OpenCode
+- Pi
 
 `serena-manager` is maintained directly inside this repository under `vendor/mcp/serena-manager`.
 `ai-config-sync` owns the shared cross-client sync layer and the vendored MCP update entrypoints.
@@ -39,6 +40,12 @@ OpenCode-specific global prompt overlay:
 
 ```text
 /home/admin101/projects/2026/ai-config-sync/opencode-global-prompt.md
+```
+
+Pi-specific global prompt overlay:
+
+```text
+/home/admin101/projects/2026/ai-config-sync/pi-global-prompt.md
 ```
 
 Shared skill sources:
@@ -87,11 +94,19 @@ Check or stop the service:
 .venv/bin/python -m ai_config_sync.cli sync-service-stop
 ```
 
-Add or remove one MCP across all three clients:
+Add or remove one MCP across all four clients:
 
 ```bash
 .venv/bin/python -m ai_config_sync.cli mcp-add fetch --server-command "${PWD}/tools/mcp/fetch.sh"
 .venv/bin/python -m ai_config_sync.cli mcp-remove fetch
+```
+
+Install Pi and the MCP adapter package:
+
+```bash
+npm install -g --ignore-scripts --prefix "$HOME/.local" @earendil-works/pi-coding-agent
+pi install npm:pi-mcp-adapter
+pi --version
 ```
 
 Update vendored MCPs:
@@ -151,16 +166,19 @@ Script entrypoints:
 - Codex MCP config is merged into `/home/admin101/.codex/config.toml`
 - Claude MCP config is merged into `/home/admin101/.claude.json`
 - OpenCode MCP config is merged into `/home/admin101/.config/opencode/opencode.jsonc`
+- Pi shared MCP config is merged into `/home/admin101/.config/mcp/mcp.json`
 - Shared config uses `${REPO_ROOT}` and `${HOME}` placeholders so sync follows the current checkout location and current login user instead of one hard-coded username
 - Source `mcpServers.*.enabled: false` means that server is skipped for all synced targets
 - Shared global prompt core is copied to every configured client prompt target
 - Codex prompt is composed from the shared core plus the Codex overlay, then written to `/home/admin101/.codex/AGENTS.md`
 - Claude prompt is composed from the shared core plus the Claude overlay, then written to `/home/admin101/.claude/CLAUDE.md`
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
+- Pi prompt is composed from the shared core plus the Pi overlay, then written to `/home/admin101/.pi/agent/AGENTS.md`
 - Claude should use the native user-level install under `/home/admin101/.local/bin/claude`; avoid keeping a parallel global npm install because `claude update` warns on multi-install drift and the native updater already manages versions under `/home/admin101/.local/share/claude/versions/`
 - Plugin cache skills are not synced by default
 - Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
+- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, and `~/.pi/agent/settings.json` keeps that directory plus the managed `npm:pi-mcp-adapter` package registered
 - Managed OpenCode runtime installs live under `/home/admin101/.local/share/ai-config-sync/opencode/releases/<version>` as official release binaries instead of `/usr/local/lib/node_modules`
 - `/home/admin101/.local/bin/opencode` is a managed wrapper that probes `current` first and falls back to the previous healthy release if the current one is broken
 - `opencode-install` resolves the latest version from the official GitHub releases API, downloads the matching release asset for the current host, validates both `opencode --version` and a short-lived `opencode serve` probe, and only then switches the `current` symlink

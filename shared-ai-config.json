@@ -47,6 +47,16 @@
       "agentPrefix": "skill-",
       "globalPromptPath": "${HOME}/.config/opencode/AGENTS.md",
       "globalPromptAppendPath": "${REPO_ROOT}/opencode-global-prompt.md"
+    },
+    "pi": {
+      "settingsPath": "${HOME}/.pi/agent/settings.json",
+      "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
+      "skillsDir": "${HOME}/.pi/agent/skills-shared",
+      "packages": [
+        "npm:pi-mcp-adapter"
+      ],
+      "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
+      "globalPromptAppendPath": "${REPO_ROOT}/pi-global-prompt.md"
     }
   }
 }
