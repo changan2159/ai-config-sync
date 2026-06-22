@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,11 @@ class StateStore:
         meta_path = self.meta_path(project_root)
         if not meta_path.is_file():
             return None
-        data = json.loads(meta_path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (JSONDecodeError, OSError):
+            self._quarantine_corrupt_meta(meta_path)
+            return None
         data.setdefault("serena_context", "codex")
         return ProjectState(**data)
 
@@ -96,3 +101,10 @@ class StateStore:
             except Exception:
                 continue
         return states
+
+    def _quarantine_corrupt_meta(self, meta_path: Path) -> None:
+        corrupt_path = meta_path.with_name(f"meta.corrupt.{int(time.time())}.json")
+        try:
+            meta_path.replace(corrupt_path)
+        except OSError:
+            meta_path.unlink(missing_ok=True)

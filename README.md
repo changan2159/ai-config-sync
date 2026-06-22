@@ -175,6 +175,7 @@ Script entrypoints:
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
 - Pi prompt is composed from the shared core plus the Pi overlay, then written to `/home/admin101/.pi/agent/AGENTS.md`
 - Claude should use the native user-level install under `/home/admin101/.local/bin/claude`; avoid keeping a parallel global npm install because `claude update` warns on multi-install drift and the native updater already manages versions under `/home/admin101/.local/share/claude/versions/`
+- `scripts/claude/update-claude.sh` also pins VS Code's `claudeCode.claudeProcessWrapper` setting to `/home/admin101/.local/bin/claude` so the extension can launch Claude even when the editor process does not inherit `~/.local/bin` on `PATH`
 - Plugin cache skills are not synced by default
 - Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
