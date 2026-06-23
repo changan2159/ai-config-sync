@@ -2,7 +2,7 @@
 
 - Prefer concise, client-friendly file references. When the client supports clickable Markdown file links, use them; otherwise include the plain absolute path.
 - Use absolute filesystem paths when pointing to local files.
-- When a line number is useful, prefer standard file references such as `[file.cs](F:/ProjectFile/repo/src/file.cs):120` or `[file.cs](F:/ProjectFile/repo/src/file.cs#L120)`.
+- When a line number is useful, prefer standard file references such as `[file.cs](/repo/src/file.cs):120` or `[file.cs](/repo/src/file.cs#L120)`.
 - If both a Markdown link and a plain path are useful, provide the richer reference first.
 - Repository-local instruction files, project docs, and verified project scripts override these global defaults when they conflict. Use this file for cross-project collaboration defaults, not project-specific policy.
 - Avoid redundant historical cleanup commentary in responses. If obsolete paths or rules have already been removed, do not spend answer space stating that they are no longer used unless that fact is operationally necessary.
@@ -19,11 +19,15 @@
 - When symbol-aware navigation is available, prefer it for brownfield codebase work where declarations, references, call chains, ownership, or cross-file structure matter more than raw string search.
 - When an indexed code graph or discovery tool is available, use it as a candidate-discovery layer for likely owner files, callers, callees, and impact sets; confirm edit targets with symbol-aware tools or direct reads before changing code.
 - A good default retrieval sequence is: graph/index discovery first when available, symbol-aware confirmation second, and plain text search for config keys, routes, JSON fields, SQL, logs, docs, and other string-driven behavior.
+- Do not force symbol-aware tools for weak-symbol or poorly indexed codebases, simple single-file edits, build or test execution, or small frontend styling changes where symbolic navigation adds little value.
+- When querying a code graph or index, prefer explicit symbol names, file stems, endpoint paths, or DTO names as anchors over broad natural-language queries; tighten noisy results with concrete identifiers before broadening the query.
+- When `fetch` is available, use it for documentation lookups, external API references, or changelog reading rather than relying on training-data recall for version-sensitive details.
+- When `node_repl` is available, use it as a quick scratchpad for validating JavaScript snippets, arithmetic, or data transforms without creating temporary files.
 - When specialized workflows, skills, or agents are available for a task shape such as debugging, code review, frontend work, context persistence, or repository retrieval, prefer those focused paths over an unfocused general pass.
 - After any non-trivial coding, debugging, review, or refactor task, do a brief self-check for durable context worth preserving. If stable project structure, business rules, verified commands, terminology, or repeated corrections were discovered, persist them in the narrowest correct place instead of waiting for the user to ask again.
 - Persist only knowledge that is likely to matter again across future tasks. Keep stable defaults in shared guidance, shared project facts in project docs, and machine-specific or more volatile observations in dedicated notes or a memory store.
 - Do not update the global instruction file for one-off troubleshooting notes, temporary workarounds, or unverified guesses. Put volatile observations in a narrower note or memory store until they are proven durable.
-- Default closing action for non-trivial tasks: check whether the task produced reusable project understanding, classify it, persist it in the narrowest correct location, downgrade weak inferences into open questions, and mention only meaningful persisted updates in the final response.
+- Treat end-of-task context persistence as a standing obligation for non-trivial tasks, not an optional step: classify any reusable understanding discovered, write it to the narrowest correct location, downgrade weak inferences to open questions, and surface only meaningful updates in the final response.
 
 # Brownfield Architecture Check
 
@@ -91,3 +95,37 @@
   opencode run "$(cat /tmp/review-prompt.txt)" --format json
   ```
 - For `OpenCode CLI`, read the final review text from the emitted JSON event stream; do not mistake intermediate tool dumps for the actual verdict.
+
+# Testing
+
+- Write tests for non-trivial behavior changes; prefer the smallest test scope that reliably catches the intended regression.
+- Prefer unit tests for isolated logic; use integration tests for cross-module contracts, persistence, auth, and external services.
+- Do not add tests for trivial delegation, pure formatting, or single-line wrappers with no decision logic.
+- Test names should state what is being tested and what the expected outcome is, not just the method name.
+
+# Git and Commits
+
+- Prefer small, focused commits. One logical change per commit; avoid bundling unrelated fixes or refactors.
+- Commit message: imperative mood, concise subject line; add a body when the why is non-obvious.
+- Do not force-push shared or integration branches; use a new commit to revise published history.
+- Stage and review changes before committing; avoid blanket `git add .` when unrelated files are present.
+
+# Skill Routing Defaults
+
+- Treat these as default routing hints; project-local instruction files and explicit user instructions can narrow, override, or forbid specific skills.
+- At the start of any substantive new conversation, prefer `using-superpowers` to establish the default operating mode before the first task.
+- When a request is underspecified or scope is ambiguous, prefer `clarify-with-repo-context` rather than proceeding on assumptions.
+- For large features, migrations, or cross-module work where the approach is not yet settled, prefer `writing-plans` before coding.
+- For bug reports, failing tests, build breaks, or reproduced-but-unexplained behavior, prefer `systematic-debugging`.
+- For production behavior changes where tests are practical, prefer `test-driven-development`.
+- For finding implementation locations, related files, call chains, or project structure, prefer `fast-codebase-retrieval`; pair with `serena-workflow` when symbol confirmation or cross-file ownership matters.
+- For non-trivial brownfield work in symbol-friendly languages (C#, TypeScript, Java, Python, Go), prefer `serena-workflow` to anchor navigation before broad text-only exploration.
+- For C# or .NET-specific symbol tracing, call-chain inspection, and type navigation, prefer `csharp-symbolic-workflow` over generic text search or broad Serena queries.
+- For rule, docs, memory, glossary, or durable-context updates, prefer `agents-self-evolution`.
+- For code review or second-pass verification, prefer `code-review`; use `security-review` when security is the primary concern.
+- For product-style frontend implementation, redesign, polish, or responsive fixes, prefer `frontend-design`; pair with `frontend-ui-engineering` when component logic or shared UI architecture is substantial.
+- For non-trivial brownfield work with growing structural risk, prefer `architecture-deepening`.
+- For multi-file, cross-module restructuring that needs sequencing and ownership mapping, prefer `large-refactor`.
+- For commit message drafting and staged change review, prefer `git-commit`.
+- For addressing GitHub PR review comments or fixing CI failures, prefer `gh-address-comments` or `gh-fix-ci` respectively.
+- For tasks that decompose into clearly independent workstreams, prefer `parallel-execution`; for multi-phase deliverables requiring cross-stream coordination, prefer `project-orchestration`.
