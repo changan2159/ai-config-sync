@@ -10,14 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ai_config_sync.errors import SyncError
+from ai_config_sync.pi_package_manager import sync_pi_packages
 
 MANAGED_BLOCK_BEGIN = "# >>> ai-config-sync managed mcp begin"
 MANAGED_BLOCK_END = "# <<< ai-config-sync managed mcp end"
 SKILL_MANIFEST_NAME = ".ai-config-sync-managed.json"
-
-
-class SyncError(RuntimeError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -277,6 +275,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     codex_skill_plan: SkillLinkPlan | None = None
     claude_skill_plan: SkillLinkPlan | None = None
     pi_skill_plan: SkillLinkPlan | None = None
+    pi_package_sync_result: dict[str, Any] | None = None
     codex_prompt_text: str | None = None
     claude_prompt_text: str | None = None
     opencode_prompt_text: str | None = None
@@ -529,6 +528,19 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     if pi_prompt_text is not None and active_pi_prompt_path is not None:
         sync_global_prompt(active_pi_prompt_path, pi_prompt_text)
     _cleanup_previous_output_path(previous_pi_prompt_path, active_pi_prompt_path)
+    if config.pi is not None:
+        pi_package_sync_result = sync_pi_packages(
+            settings_path=config.pi.settings_path,
+            packages=config.pi.packages,
+            previous_packages=previous_pi_packages,
+        )
+        result["targets"]["pi"]["package_sync"] = pi_package_sync_result
+    elif previous_pi_settings_path is not None and previous_pi_packages:
+        sync_pi_packages(
+            settings_path=previous_pi_settings_path,
+            packages=(),
+            previous_packages=previous_pi_packages,
+        )
 
     state = {
         "codex": codex_state,

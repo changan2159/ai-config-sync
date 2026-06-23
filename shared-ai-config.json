@@ -55,7 +55,9 @@
       "skillsDir": "${HOME}/.pi/agent/skills-shared",
       "packages": [
         "npm:pi-mcp-adapter",
-        "npm:@narumitw/pi-plan-mode"
+        "npm:@narumitw/pi-plan-mode",
+        "npm:pi-subagents",
+        "npm:pi-nano-context"
       ],
       "defaultProvider": "openai",
       "defaultModel": "gpt-5.4",

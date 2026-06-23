@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from ai_config_sync.errors import SyncError
 from ai_config_sync.mcp_runtime import preflight_mcp, reap_mcp
 from ai_config_sync.mcp_updates import (
     update_all_mcp,
@@ -23,6 +24,7 @@ from ai_config_sync.opencode_manager import (
     start_opencode_service,
     stop_opencode_service,
 )
+from ai_config_sync.pi_package_manager import pi_package_paths
 from ai_config_sync.pi_web_manager import (
     install_pi_web,
     install_pi_web_service,
@@ -32,7 +34,6 @@ from ai_config_sync.pi_web_manager import (
 )
 from ai_config_sync.sync import (
     McpServerConfig,
-    SyncError,
     add_mcp_server,
     default_paths,
     install_service,
@@ -116,6 +117,9 @@ def _managed_output_paths(config: Any, state_path: Path) -> list[Path]:
     if config.pi is not None:
         paths.append(config.pi.settings_path)
         paths.append(config.pi.mcp_config_path)
+        pi_paths = pi_package_paths(config.pi.settings_path)
+        paths.append(pi_paths.package_json_path)
+        paths.append(pi_paths.package_lock_path)
         if config.pi.global_prompt_path is not None:
             paths.append(config.pi.global_prompt_path)
     unique_paths: list[Path] = []

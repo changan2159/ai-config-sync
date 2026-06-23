@@ -101,11 +101,11 @@ Add or remove one MCP across all four clients:
 .venv/bin/python -m ai_config_sync.cli mcp-remove fetch
 ```
 
-Install Pi and the MCP adapter package:
+Install Pi itself; managed Pi packages are installed during sync:
 
 ```bash
 npm install -g --ignore-scripts --prefix "$HOME/.local" @earendil-works/pi-coding-agent
-pi install npm:pi-mcp-adapter
+.venv/bin/python -m ai_config_sync.cli sync-once
 pi --version
 ```
 
@@ -191,7 +191,7 @@ Script entrypoints:
 - Plugin cache skills are not synced by default
 - Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
-- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, `~/.pi/agent/settings.json` keeps that directory plus the managed `npm:pi-mcp-adapter` package registered, and Pi model defaults/providers can be synced into `~/.pi/agent/settings.json` and `~/.pi/agent/models.json`
+- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, `~/.pi/agent/settings.json` keeps that directory plus the managed Pi packages (`npm:pi-mcp-adapter`, `npm:@narumitw/pi-plan-mode`, `npm:pi-subagents`, `npm:pi-nano-context`) registered, sync also installs or removes those packages under `/home/admin101/.pi/agent/npm`, and Pi model defaults/providers can be synced into `~/.pi/agent/settings.json` and `~/.pi/agent/models.json`
 - Managed OpenCode runtime installs live under `/home/admin101/.local/share/ai-config-sync/opencode/releases/<version>` as official release binaries instead of `/usr/local/lib/node_modules`
 - `/home/admin101/.local/bin/opencode` is a managed wrapper that probes `current` first and falls back to the previous healthy release if the current one is broken
 - `opencode-install` resolves the latest version from the official GitHub releases API, downloads the matching release asset for the current host, validates both `opencode --version` and a short-lived `opencode serve` probe, and only then switches the `current` symlink

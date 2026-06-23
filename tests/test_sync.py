@@ -314,6 +314,109 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
     assert "ollama-host" in cleared_models["providers"]
 
 
+def test_sync_clients_runs_managed_pi_package_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "skills"
+    write_skill(root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+    calls: list[tuple[Path, tuple[str, ...], list[str]]] = []
+
+    def fake_sync_pi_packages(
+        *,
+        settings_path: Path,
+        packages: tuple[str, ...],
+        previous_packages: list[str],
+    ) -> dict[str, object]:
+        calls.append((settings_path, packages, previous_packages))
+        return {"installed": ["npm:pi-subagents"], "removed": [], "installed_package_names": ["pi-subagents"]}
+
+    monkeypatch.setattr(sync_module, "sync_pi_packages", fake_sync_pi_packages)
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(root)}],
+        targets={
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter", "npm:pi-subagents"],
+            },
+        },
+        servers={},
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    assert calls == [(pi_settings, ("npm:pi-mcp-adapter", "npm:pi-subagents"), [])]
+    assert result["targets"]["pi"]["package_sync"] == {
+        "installed": ["npm:pi-subagents"],
+        "removed": [],
+        "installed_package_names": ["pi-subagents"],
+    }
+
+
+def test_sync_clients_uninstalls_managed_pi_packages_when_pi_target_is_removed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "skills"
+    write_skill(root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(root)}],
+        targets={
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter", "npm:pi-subagents"],
+            },
+        },
+        servers={},
+    )
+    sync_clients(load_sync_config(config_path), state_path)
+
+    calls: list[tuple[Path, tuple[str, ...], list[str]]] = []
+
+    def fake_sync_pi_packages(
+        *,
+        settings_path: Path,
+        packages: tuple[str, ...],
+        previous_packages: list[str],
+    ) -> dict[str, object]:
+        calls.append((settings_path, packages, previous_packages))
+        return {"installed": [], "removed": previous_packages, "installed_package_names": []}
+
+    monkeypatch.setattr(sync_module, "sync_pi_packages", fake_sync_pi_packages)
+    write_config(config_path, skill_roots=[{"path": str(root)}], targets={}, servers={})
+
+    sync_clients(load_sync_config(config_path), state_path)
+
+    assert calls == [
+        (
+            pi_settings,
+            (),
+            ["npm:pi-mcp-adapter", "npm:pi-subagents"],
+        )
+    ]
+
+
 def test_compute_fingerprint_changes_when_global_prompt_changes(tmp_path: Path) -> None:
     root = tmp_path / "skills"
     shared_prompt = tmp_path / "shared-global-prompt.md"
@@ -471,6 +574,19 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
     assert config.pi.skills_dir == home / ".pi" / "agent" / "skills-shared"
     assert config.pi.packages == ("npm:pi-mcp-adapter",)
     assert config.pi.global_prompt_append_path == repo_root / "pi-global-prompt.md"
+
+
+def test_repo_shared_config_includes_expected_managed_pi_packages() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = load_sync_config(repo_root / "shared-ai-config.json")
+
+    assert config.pi is not None
+    assert config.pi.packages == (
+        "npm:pi-mcp-adapter",
+        "npm:@narumitw/pi-plan-mode",
+        "npm:pi-subagents",
+        "npm:pi-nano-context",
+    )
 
 
 def test_resolve_skills_uses_repo_local_roots_only(tmp_path: Path) -> None:
@@ -1305,6 +1421,98 @@ def test_cli_run_config_update_rolls_back_target_writes_when_sync_fails(tmp_path
 
     assert '"demo"' not in config_path.read_text(encoding="utf-8")
     assert target_path.read_text(encoding="utf-8") == original_target
+
+
+def test_cli_run_config_update_rolls_back_pi_package_manifest_when_sync_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "shared-ai-config.json"
+    target_path = tmp_path / "codex" / "config.toml"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_package_json = tmp_path / "pi" / "npm" / "package.json"
+    target_path.parent.mkdir(parents=True)
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_package_json.parent.mkdir(parents=True)
+    target_path.write_text('model = "gpt-5"\n', encoding="utf-8")
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+    pi_package_json.write_text(
+        json.dumps(
+            {
+                "name": "pi-extensions",
+                "private": True,
+                "dependencies": {"pi-mcp-adapter": "^2.10.0"},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    original_package_manifest = pi_package_json.read_text(encoding="utf-8")
+    config_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {},
+                "skillRoots": [],
+                "include": ["*"],
+                "targets": {
+                    "codex": {
+                        "configPath": str(target_path),
+                        "skillsDir": str(tmp_path / "codex" / "skills"),
+                    },
+                    "pi": {
+                        "settingsPath": str(pi_settings),
+                        "mcpConfigPath": str(pi_mcp_config),
+                        "skillsDir": str(tmp_path / "pi" / "skills"),
+                        "packages": ["npm:pi-mcp-adapter", "npm:pi-subagents"],
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class FakePaths:
+        def __init__(self) -> None:
+            self.config_path = config_path
+            self.state_path = tmp_path / "state" / "sync-state.json"
+
+    def fake_update(path: Path) -> dict[str, str]:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["mcpServers"]["demo"] = {"type": "stdio", "command": "/bin/echo"}
+        path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+        return {"added": "demo"}
+
+    def fake_sync_clients(config: object, _state_path: Path) -> dict[str, object]:
+        assert getattr(config, "pi").settings_path == pi_settings
+        target_path.write_text('command = "/bin/echo"\n', encoding="utf-8")
+        pi_package_json.write_text(
+            json.dumps(
+                {
+                    "name": "pi-extensions",
+                    "private": True,
+                    "dependencies": {
+                        "pi-mcp-adapter": "^2.10.0",
+                        "pi-subagents": "^0.30.0",
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        raise SyncError("boom")
+
+    monkeypatch.setattr(cli_module, "sync_clients", fake_sync_clients)
+
+    with pytest.raises(SyncError, match="boom"):
+        cli_module._run_config_update(FakePaths(), fake_update)
+
+    assert '"demo"' not in config_path.read_text(encoding="utf-8")
+    assert target_path.read_text(encoding="utf-8") == 'model = "gpt-5"\n'
+    assert pi_package_json.read_text(encoding="utf-8") == original_package_manifest
 
 
 def test_update_codegraph_pins_exact_version_and_refreshes_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
