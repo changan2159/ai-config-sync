@@ -16,6 +16,7 @@
 - Default to UTF-8 for documentation, scripts, templates, AI-maintained context, terminal output, and generated text files.
 - Do not rely on GBK/CP936 defaults unless a legacy file or external system explicitly requires that encoding; document the exception near the command or file.
 - In Python, pass `encoding="utf-8"` when reading or writing text files.
+- When adding dependencies, prefer pinned or exact versions over open ranges; verify the package is actively maintained and the name is not a typosquatting risk before adding.
 - When symbol-aware navigation is available, prefer it for brownfield codebase work where declarations, references, call chains, ownership, or cross-file structure matter more than raw string search.
 - When an indexed code graph or discovery tool is available, use it as a candidate-discovery layer for likely owner files, callers, callees, and impact sets; confirm edit targets with symbol-aware tools or direct reads before changing code.
 - A good default retrieval sequence is: graph/index discovery first when available, symbol-aware confirmation second, and plain text search for config keys, routes, JSON fields, SQL, logs, docs, and other string-driven behavior.
@@ -23,7 +24,6 @@
 - When querying a code graph or index, prefer explicit symbol names, file stems, endpoint paths, or DTO names as anchors over broad natural-language queries; tighten noisy results with concrete identifiers before broadening the query.
 - When `fetch` is available, use it for documentation lookups, external API references, or changelog reading rather than relying on training-data recall for version-sensitive details.
 - When `node_repl` is available, use it as a quick scratchpad for validating JavaScript snippets, arithmetic, or data transforms without creating temporary files.
-- When specialized workflows, skills, or agents are available for a task shape such as debugging, code review, frontend work, context persistence, or repository retrieval, prefer those focused paths over an unfocused general pass.
 - After any non-trivial coding, debugging, review, or refactor task, do a brief self-check for durable context worth preserving. If stable project structure, business rules, verified commands, terminology, or repeated corrections were discovered, persist them in the narrowest correct place instead of waiting for the user to ask again.
 - Persist only knowledge that is likely to matter again across future tasks. Keep stable defaults in shared guidance, shared project facts in project docs, and machine-specific or more volatile observations in dedicated notes or a memory store.
 - Do not update the global instruction file for one-off troubleshooting notes, temporary workarounds, or unverified guesses. Put volatile observations in a narrower note or memory store until they are proven durable.

@@ -4,6 +4,7 @@
 - Shared MCP servers are synced into `~/.config/mcp/mcp.json` and exposed through the installed `pi-mcp-adapter` package. Available servers: `serena`, `codegraph`, `fetch`, `node_repl`.
 - Prefer the shared synced skills and MCP tools before inventing duplicate local workflows.
 - Restart `pi` or run `/reload` after changing synced prompt, settings, or project skill files.
+- Project-local `AGENTS.md` or explicit user instructions take precedence over the shared routing defaults; follow them when they narrow or override a skill.
 
 ## Pi-Specific Capabilities
 
