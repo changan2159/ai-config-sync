@@ -207,6 +207,113 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
     assert "demo2" in pi_mcp_data["mcpServers"]
 
 
+def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    write_skill(root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_models = tmp_path / "pi" / "models.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_settings.write_text(
+        json.dumps(
+            {
+                "theme": "light",
+                "defaultProvider": "ollama-host",
+                "defaultModel": "devstral-small-2",
+                "packages": [],
+                "skills": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pi_models.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ollama-host": {
+                        "baseUrl": "http://127.0.0.1:11434/v1",
+                        "api": "openai-completions",
+                        "apiKey": "ollama",
+                        "models": [{"id": "devstral-small-2"}],
+                    }
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(root)}],
+        targets={
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter"],
+                "defaultProvider": "chris",
+                "defaultModel": "gpt-5.4",
+                "providers": {
+                    "chris": {
+                        "baseUrl": "http://38.145.220.6:9000/v1",
+                        "api": "openai-responses",
+                        "apiKey": "$OPENAI_API_KEY",
+                        "authHeader": True,
+                        "models": [
+                            {
+                                "id": "gpt-5.4",
+                                "name": "GPT-5.4 (Relay)",
+                                "reasoning": True,
+                                "input": ["text", "image"],
+                                "contextWindow": 400000,
+                                "maxTokens": 128000,
+                                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                            }
+                        ],
+                    }
+                },
+            }
+        },
+        servers={},
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    pi_settings_data = json.loads(pi_settings.read_text(encoding="utf-8"))
+    assert pi_settings_data["theme"] == "light"
+    assert pi_settings_data["defaultProvider"] == "chris"
+    assert pi_settings_data["defaultModel"] == "gpt-5.4"
+    assert pi_settings_data["packages"] == ["npm:pi-mcp-adapter"]
+
+    pi_models_data = json.loads(pi_models.read_text(encoding="utf-8"))
+    assert "ollama-host" in pi_models_data["providers"]
+    assert pi_models_data["providers"]["chris"]["api"] == "openai-responses"
+    assert pi_models_data["providers"]["chris"]["apiKey"] == "$OPENAI_API_KEY"
+    assert pi_models_data["providers"]["chris"]["models"][0]["id"] == "gpt-5.4"
+
+    assert result["targets"]["pi"]["models_path"] == str(pi_models)
+    assert result["targets"]["pi"]["providers"] == ["chris"]
+    assert result["targets"]["pi"]["default_provider"] == "chris"
+    assert result["targets"]["pi"]["default_model"] == "gpt-5.4"
+
+    write_config(config_path, skill_roots=[{"path": str(root)}], targets={}, servers={})
+    sync_clients(load_sync_config(config_path), state_path)
+
+    cleared_settings = json.loads(pi_settings.read_text(encoding="utf-8"))
+    assert "defaultProvider" not in cleared_settings
+    assert "defaultModel" not in cleared_settings
+
+    cleared_models = json.loads(pi_models.read_text(encoding="utf-8"))
+    assert "chris" not in cleared_models["providers"]
+    assert "ollama-host" in cleared_models["providers"]
+
+
 def test_compute_fingerprint_changes_when_global_prompt_changes(tmp_path: Path) -> None:
     root = tmp_path / "skills"
     shared_prompt = tmp_path / "shared-global-prompt.md"
@@ -1556,6 +1663,44 @@ def test_cli_mcp_update_fetch_prints_result(tmp_path: Path, monkeypatch: pytest.
     cli_module.main()
 
     assert json.loads(capsys.readouterr().out) == {"name": "fetch", "version": "2026.6.4"}
+
+
+def test_cli_pi_web_install_prints_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(cli_module, "install_pi_web", lambda version=None: {"version": version or "v1.21.2"})
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "pi-web-install"])
+
+    cli_module.main()
+
+    assert json.loads(capsys.readouterr().out) == {"version": "v1.21.2"}
+
+
+def test_cli_pi_web_service_start_prints_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(
+        cli_module,
+        "start_pi_web_service",
+        lambda port=8732, hostname="0.0.0.0": {"port": port, "hostname": hostname, "service_active": "active"},
+    )
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "pi-web-service-start", "--hostname", "127.0.0.1"])
+
+    cli_module.main()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "port": 8732,
+        "hostname": "127.0.0.1",
+        "service_active": "active",
+    }
 
 
 def test_update_codegraph_keeps_real_manifest_when_npm_refresh_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

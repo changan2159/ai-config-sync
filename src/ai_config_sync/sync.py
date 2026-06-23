@@ -69,8 +69,12 @@ class OpencodeTargetConfig:
 class PiTargetConfig:
     settings_path: Path
     mcp_config_path: Path
+    models_path: Path
     skills_dir: Path
     packages: tuple[str, ...] = ("npm:pi-mcp-adapter",)
+    providers: dict[str, Any] | None = None
+    default_provider: str | None = None
+    default_model: str | None = None
     global_prompt_path: Path | None = None
     global_prompt_append_path: Path | None = None
 
@@ -156,14 +160,22 @@ def load_sync_config(path: Path) -> SyncConfig:
         global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath"), repo_root),
         global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath"), repo_root),
     ) if "opencode" in targets else None
-    pi = PiTargetConfig(
-        settings_path=_resolve_path(targets["pi"]["settingsPath"], repo_root),
-        mcp_config_path=_resolve_path(targets["pi"]["mcpConfigPath"], repo_root),
-        skills_dir=_resolve_path(targets["pi"]["skillsDir"], repo_root),
-        packages=tuple(str(item) for item in targets["pi"].get("packages", ["npm:pi-mcp-adapter"])),
-        global_prompt_path=_optional_path(targets["pi"].get("globalPromptPath"), repo_root),
-        global_prompt_append_path=_optional_path(targets["pi"].get("globalPromptAppendPath"), repo_root),
-    ) if "pi" in targets else None
+    if "pi" in targets:
+        pi_settings_path = _resolve_path(targets["pi"]["settingsPath"], repo_root)
+        pi = PiTargetConfig(
+            settings_path=pi_settings_path,
+            mcp_config_path=_resolve_path(targets["pi"]["mcpConfigPath"], repo_root),
+            models_path=_optional_path(targets["pi"].get("modelsPath"), repo_root) or pi_settings_path.with_name("models.json"),
+            skills_dir=_resolve_path(targets["pi"]["skillsDir"], repo_root),
+            packages=tuple(str(item) for item in targets["pi"].get("packages", ["npm:pi-mcp-adapter"])),
+            providers=dict(targets["pi"].get("providers", {})),
+            default_provider=targets["pi"].get("defaultProvider"),
+            default_model=targets["pi"].get("defaultModel"),
+            global_prompt_path=_optional_path(targets["pi"].get("globalPromptPath"), repo_root),
+            global_prompt_append_path=_optional_path(targets["pi"].get("globalPromptAppendPath"), repo_root),
+        )
+    else:
+        pi = None
     return SyncConfig(
         mcp_servers=mcp_servers,
         skill_roots=roots,
@@ -187,6 +199,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_opencode_agents = previous.get("opencode", {}).get("agents", [])
     previous_pi_skills = previous.get("pi", {}).get("skills", [])
     previous_pi_packages = previous.get("pi", {}).get("packages", [])
+    previous_pi_providers = previous.get("pi", {}).get("providers", [])
     previous_codex_prompt_path = _optional_path(previous.get("codex", {}).get("global_prompt_path"))
     previous_claude_prompt_path = _optional_path(previous.get("claude", {}).get("global_prompt_path"))
     previous_opencode_prompt_path = _optional_path(previous.get("opencode", {}).get("global_prompt_path"))
@@ -196,9 +209,12 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_opencode_config_path = _optional_path(previous.get("opencode", {}).get("config_path"))
     previous_pi_settings_path = _optional_path(previous.get("pi", {}).get("settings_path"))
     previous_pi_mcp_config_path = _optional_path(previous.get("pi", {}).get("mcp_config_path"))
+    previous_pi_models_path = _optional_path(previous.get("pi", {}).get("models_path"))
     previous_codex_skills_dir = _optional_path(previous.get("codex", {}).get("skills_dir"))
     previous_claude_skills_dir = _optional_path(previous.get("claude", {}).get("skills_dir"))
     previous_pi_skills_dir = _optional_path(previous.get("pi", {}).get("skills_dir"))
+    previous_pi_default_provider = previous.get("pi", {}).get("default_provider")
+    previous_pi_default_model = previous.get("pi", {}).get("default_model")
     codex_legacy_paths = _legacy_default_target_paths("codex")
     claude_legacy_paths = _legacy_default_target_paths("claude")
     opencode_legacy_paths = _legacy_default_target_paths("opencode")
@@ -257,6 +273,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     opencode_config_payload: tuple[Path, str] | None = None
     pi_settings_payload: tuple[Path, str] | None = None
     pi_mcp_config_payload: tuple[Path, str] | None = None
+    pi_models_payload: tuple[Path, str] | None = None
     codex_skill_plan: SkillLinkPlan | None = None
     claude_skill_plan: SkillLinkPlan | None = None
     pi_skill_plan: SkillLinkPlan | None = None
@@ -394,6 +411,10 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
                 config.pi.packages,
                 previous_pi_packages,
                 [str(previous_pi_skills_dir)] if previous_pi_skills_dir is not None else [],
+                config.pi.default_provider,
+                config.pi.default_model,
+                previous_pi_default_provider,
+                previous_pi_default_model,
             ),
         )
         pi_mcp_original = config.pi.mcp_config_path.read_text(encoding="utf-8") if config.pi.mcp_config_path.exists() else ""
@@ -401,13 +422,24 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             config.pi.mcp_config_path,
             build_pi_mcp_config_payload(pi_mcp_original, enabled_servers, previous_pi_mcp),
         )
+        pi_models_original = config.pi.models_path.read_text(encoding="utf-8") if config.pi.models_path.exists() else ""
+        pi_models_payload = (
+            config.pi.models_path,
+            build_pi_models_payload(pi_models_original, config.pi.providers or {}, previous_pi_providers),
+        )
         pi_skill_plan = plan_skill_links(config.pi.skills_dir, skills, previous_pi_skills)
         pi_result: dict[str, Any] = {
             "settings_path": str(config.pi.settings_path),
             "mcp_config_path": str(config.pi.mcp_config_path),
+            "models_path": str(config.pi.models_path),
             "packages": list(config.pi.packages),
+            "providers": sorted((config.pi.providers or {}).keys()),
             "skills": {"linked": list(pi_skill_plan.linked), "removed": list(pi_skill_plan.removed)},
         }
+        if config.pi.default_provider is not None:
+            pi_result["default_provider"] = config.pi.default_provider
+        if config.pi.default_model is not None:
+            pi_result["default_model"] = config.pi.default_model
         pi_prompt_text = build_global_prompt(config.global_prompt_path, config.pi.global_prompt_append_path)
         if pi_prompt_text is not None and config.pi.global_prompt_path is not None:
             pi_result["global_prompt_path"] = str(config.pi.global_prompt_path)
@@ -418,8 +450,12 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         pi_state = {
             "settings_path": str(config.pi.settings_path),
             "mcp_config_path": str(config.pi.mcp_config_path),
+            "models_path": str(config.pi.models_path),
             "skills_dir": str(config.pi.skills_dir),
             "packages": list(config.pi.packages),
+            "providers": sorted((config.pi.providers or {}).keys()),
+            "default_provider": config.pi.default_provider,
+            "default_model": config.pi.default_model,
             "mcp": [server.name for server in enabled_servers],
             "skills": [skill.name for skill in skills],
             "global_prompt_path": str(active_pi_prompt_path) if active_pi_prompt_path is not None else None,
@@ -427,7 +463,11 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             if active_pi_prompt_path is not None and config.pi.global_prompt_append_path is not None
             else None,
         }
-    elif previous_pi_settings_path is not None or previous_pi_mcp_config_path is not None:
+    elif (
+        previous_pi_settings_path is not None
+        or previous_pi_mcp_config_path is not None
+        or previous_pi_models_path is not None
+    ):
         if previous_pi_settings_path is not None:
             pi_settings_original = previous_pi_settings_path.read_text(encoding="utf-8") if previous_pi_settings_path.exists() else ""
             pi_settings_payload = (
@@ -438,6 +478,10 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
                     (),
                     previous_pi_packages,
                     [str(previous_pi_skills_dir)] if previous_pi_skills_dir is not None else [],
+                    None,
+                    None,
+                    previous_pi_default_provider,
+                    previous_pi_default_model,
                 ),
             )
         if previous_pi_mcp_config_path is not None:
@@ -445,6 +489,12 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             pi_mcp_config_payload = (
                 previous_pi_mcp_config_path,
                 build_pi_mcp_config_payload(pi_mcp_original, (), previous_pi_mcp),
+            )
+        if previous_pi_models_path is not None:
+            pi_models_original = previous_pi_models_path.read_text(encoding="utf-8") if previous_pi_models_path.exists() else ""
+            pi_models_payload = (
+                previous_pi_models_path,
+                build_pi_models_payload(pi_models_original, {}, previous_pi_providers),
             )
         if previous_pi_skills_dir is not None:
             pi_skill_plan = plan_skill_links(previous_pi_skills_dir, [], previous_pi_skills)
@@ -459,6 +509,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         _atomic_write_text(*pi_settings_payload)
     if pi_mcp_config_payload is not None:
         _atomic_write_text(*pi_mcp_config_payload)
+    if pi_models_payload is not None:
+        _atomic_write_text(*pi_models_payload)
     if codex_skill_plan is not None:
         apply_skill_link_plan(codex_skill_plan)
     if claude_skill_plan is not None:
@@ -728,11 +780,25 @@ def sync_pi_settings(
     packages: tuple[str, ...],
     previous_packages: list[str],
     previous_skills_dirs: list[str],
+    default_provider: str | None = None,
+    default_model: str | None = None,
+    previous_default_provider: str | None = None,
+    previous_default_model: str | None = None,
 ) -> None:
     original = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
     _atomic_write_text(
         settings_path,
-        build_pi_settings_payload(original, skills_dirs, packages, previous_packages, previous_skills_dirs),
+        build_pi_settings_payload(
+            original,
+            skills_dirs,
+            packages,
+            previous_packages,
+            previous_skills_dirs,
+            default_provider,
+            default_model,
+            previous_default_provider,
+            previous_default_model,
+        ),
     )
 
 
@@ -742,6 +808,10 @@ def build_pi_settings_payload(
     packages: tuple[str, ...],
     previous_packages: list[str],
     previous_skills_dirs: list[str],
+    default_provider: str | None = None,
+    default_model: str | None = None,
+    previous_default_provider: str | None = None,
+    previous_default_model: str | None = None,
 ) -> str:
     data = json.loads(original) if original.strip() else {}
     current_packages = _normalize_string_list(data.get("packages"))
@@ -756,6 +826,14 @@ def build_pi_settings_payload(
 
     data["packages"] = current_packages
     data["skills"] = current_skills
+    if default_provider is not None:
+        data["defaultProvider"] = default_provider
+    elif previous_default_provider is not None and data.get("defaultProvider") == previous_default_provider:
+        data.pop("defaultProvider", None)
+    if default_model is not None:
+        data["defaultModel"] = default_model
+    elif previous_default_model is not None and data.get("defaultModel") == previous_default_model:
+        data.pop("defaultModel", None)
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -772,6 +850,17 @@ def build_pi_mcp_config_payload(original: str, servers: tuple[McpServerConfig, .
     for server in servers:
         current[server.name] = _render_standard_mcp_server(server)
     data["mcpServers"] = current
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def build_pi_models_payload(original: str, providers: dict[str, Any], previous_names: list[str]) -> str:
+    data = json.loads(original) if original.strip() else {}
+    current = dict(data.get("providers", {}))
+    for name in previous_names:
+        current.pop(name, None)
+    for name, provider in providers.items():
+        current[name] = provider
+    data["providers"] = current
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 

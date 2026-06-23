@@ -23,6 +23,13 @@ from ai_config_sync.opencode_manager import (
     start_opencode_service,
     stop_opencode_service,
 )
+from ai_config_sync.pi_web_manager import (
+    install_pi_web,
+    install_pi_web_service,
+    pi_web_status,
+    start_pi_web_service,
+    stop_pi_web_service,
+)
 from ai_config_sync.sync import (
     McpServerConfig,
     SyncError,
@@ -228,6 +235,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("opencode-service-stop")
 
+    pi_web_install = subparsers.add_parser("pi-web-install")
+    pi_web_install.add_argument("--version", required=False)
+
+    subparsers.add_parser("pi-web-status")
+
+    pi_web_service_install = subparsers.add_parser("pi-web-service-install")
+    pi_web_service_install.add_argument("--port", type=int, default=8732)
+    pi_web_service_install.add_argument("--hostname", default="0.0.0.0")
+
+    pi_web_service_start = subparsers.add_parser("pi-web-service-start")
+    pi_web_service_start.add_argument("--port", type=int, default=8732)
+    pi_web_service_start.add_argument("--hostname", default="0.0.0.0")
+
+    subparsers.add_parser("pi-web-service-stop")
+
     subparsers.add_parser("mcp-preflight")
 
     mcp_clean = subparsers.add_parser("mcp-clean")
@@ -301,6 +323,33 @@ def main() -> None:
             return
         if args.command == "opencode-service-stop":
             print(json.dumps(stop_opencode_service(), indent=2, ensure_ascii=False))
+            return
+        if args.command == "pi-web-install":
+            print(json.dumps(install_pi_web(version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "pi-web-status":
+            print(json.dumps(pi_web_status(), indent=2, ensure_ascii=False))
+            return
+        if args.command == "pi-web-service-install":
+            print(
+                json.dumps(
+                    install_pi_web_service(port=args.port, hostname=args.hostname),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "pi-web-service-start":
+            print(
+                json.dumps(
+                    start_pi_web_service(port=args.port, hostname=args.hostname),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return
+        if args.command == "pi-web-service-stop":
+            print(json.dumps(stop_pi_web_service(), indent=2, ensure_ascii=False))
             return
         if args.command == "mcp-preflight":
             print(json.dumps(preflight_mcp(repo_root), indent=2, ensure_ascii=False))

@@ -51,10 +51,19 @@
     "pi": {
       "settingsPath": "${HOME}/.pi/agent/settings.json",
       "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
+      "modelsPath": "${HOME}/.pi/agent/models.json",
       "skillsDir": "${HOME}/.pi/agent/skills-shared",
       "packages": [
-        "npm:pi-mcp-adapter"
+        "npm:pi-mcp-adapter",
+        "npm:@narumitw/pi-plan-mode"
       ],
+      "defaultProvider": "openai",
+      "defaultModel": "gpt-5.4",
+      "providers": {
+        "openai": {
+          "baseUrl": "http://38.145.220.6:9000/v1"
+        }
+      },
       "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
       "globalPromptAppendPath": "${REPO_ROOT}/pi-global-prompt.md"
     }

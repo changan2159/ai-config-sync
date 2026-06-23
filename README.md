@@ -140,6 +140,16 @@ sudo .venv/bin/python -m ai_config_sync.cli opencode-service-start
 .venv/bin/python -m ai_config_sync.cli opencode-status
 ```
 
+Install or start `pi-web` for browser-based Pi sessions:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli pi-web-install
+.venv/bin/python -m ai_config_sync.cli pi-web-install --version 1.21.2
+sudo .venv/bin/python -m ai_config_sync.cli pi-web-service-install
+sudo .venv/bin/python -m ai_config_sync.cli pi-web-service-start
+.venv/bin/python -m ai_config_sync.cli pi-web-status
+```
+
 Update an existing managed install:
 
 ```bash
@@ -154,6 +164,8 @@ Script entrypoints:
 ./scripts/claude/update-claude.sh 2.1.183
 ./scripts/opencode/update-opencode.sh
 ./scripts/opencode/update-opencode.sh 1.17.8
+./scripts/pi-web/update-pi-web.sh
+./scripts/pi-web/update-pi-web.sh 1.21.2
 ./update-all-mcp.sh
 ./scripts/mcp/update-serena-agent.sh
 ./scripts/mcp/update-fetch.sh
@@ -179,12 +191,14 @@ Script entrypoints:
 - Plugin cache skills are not synced by default
 - Shared skill sync only mirrors repo-local `skills/`; client-native system skills remain owned by each CLI instead of being cross-synced
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources
-- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, and `~/.pi/agent/settings.json` keeps that directory plus the managed `npm:pi-mcp-adapter` package registered
+- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, `~/.pi/agent/settings.json` keeps that directory plus the managed `npm:pi-mcp-adapter` package registered, and Pi model defaults/providers can be synced into `~/.pi/agent/settings.json` and `~/.pi/agent/models.json`
 - Managed OpenCode runtime installs live under `/home/admin101/.local/share/ai-config-sync/opencode/releases/<version>` as official release binaries instead of `/usr/local/lib/node_modules`
 - `/home/admin101/.local/bin/opencode` is a managed wrapper that probes `current` first and falls back to the previous healthy release if the current one is broken
 - `opencode-install` resolves the latest version from the official GitHub releases API, downloads the matching release asset for the current host, validates both `opencode --version` and a short-lived `opencode serve` probe, and only then switches the `current` symlink
 - The canonical boot path is the system service `/etc/systemd/system/opencode-web.service`, which runs as the login user but starts from `multi-user.target` instead of depending on a user-session service
 - `opencode-service-start` disables the old user unit `opencode-web-managed.service` before enabling the system service, so future updates do not recreate the previous port-conflict path
+- `pi-web-install` uses the official upstream installer, keeps the binary under `/home/admin101/.local/bin/pi-web`, and preserves upstream default plugin installation unless the environment overrides it
+- The canonical Pi web boot path is the system service `/etc/systemd/system/pi-web.service`, which runs `pi-web --port 8732 --host 0.0.0.0` as the login user
 - `loginctl linger` may still remain enabled on this host for `ai-config-sync.service`, but OpenCode itself no longer depends on a user service or linger to start after boot
 - MCP commands point at repo-local wrapper scripts under `tools/mcp/`, and those wrappers bootstrap only the vendored repo-local runtimes under `vendor/mcp/`
 - `fetch` is now repo-local too: the shared config points at `tools/mcp/fetch.sh`, which runs a pinned `mcp-server-fetch` environment prepared under `vendor/mcp/fetch`
@@ -209,6 +223,9 @@ Script entrypoints:
 - top-level `globalPromptPath`: the shared source file to copy
 - per-target `globalPromptPath`: the destination file for that client
 - per-target `globalPromptAppendPath`: optional client-specific content appended after the shared core with a blank line separator
+- Pi target `defaultProvider` / `defaultModel`: optional default model selection written into `settings.json`
+- Pi target `modelsPath`: optional `models.json` destination; defaults to a sibling `models.json` next to `settings.json`
+- Pi target `providers`: optional managed `models.json` provider definitions merged by provider name without deleting unrelated manual providers
 
 If a target has no prompt destination, prompt sync is skipped for that target while MCP and skill sync continue.
 If the shared core is omitted but a target defines both `globalPromptPath` and `globalPromptAppendPath`, the target prompt is generated from that overlay alone.
