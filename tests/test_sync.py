@@ -42,11 +42,12 @@ def write_config(
     targets: dict,
     servers: dict,
     global_prompt_path: str | None = None,
+    include: list[str] | None = None,
 ) -> None:
     payload = {
         "mcpServers": servers,
         "skillRoots": skill_roots,
-        "include": ["*"],
+        "include": include or ["*"],
         "targets": targets,
     }
     if global_prompt_path is not None:
@@ -125,6 +126,7 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "mcpConfigPath": str(pi_mcp_config),
                 "skillsDir": str(tmp_path / "pi" / "skills"),
                 "packages": ["npm:pi-mcp-adapter"],
+                "enableSkillCommands": True,
                 "globalPromptPath": str(pi_prompt),
                 "globalPromptAppendPath": str(pi_overlay),
             },
@@ -147,6 +149,7 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
     assert pi_settings_data["theme"] == "dark"
     assert pi_settings_data["packages"] == ["keep-me", "npm:pi-mcp-adapter"]
     assert pi_settings_data["skills"] == ["/manual/skills", str(tmp_path / "pi" / "skills")]
+    assert pi_settings_data["enableSkillCommands"] is True
     pi_mcp_data = json.loads(pi_mcp_config.read_text(encoding="utf-8"))
     assert pi_mcp_data["mcpServers"]["manual"] == {"command": "/bin/true"}
     assert pi_mcp_data["mcpServers"]["demo"]["command"] == "/bin/echo"
@@ -189,6 +192,7 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "mcpConfigPath": str(pi_mcp_config),
                 "skillsDir": str(tmp_path / "pi" / "skills"),
                 "packages": ["npm:pi-mcp-adapter"],
+                "enableSkillCommands": True,
                 "globalPromptPath": str(pi_prompt),
                 "globalPromptAppendPath": str(pi_overlay),
             },
@@ -259,6 +263,7 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
                 "packages": ["npm:pi-mcp-adapter"],
                 "defaultProvider": "chris",
                 "defaultModel": "gpt-5.4",
+                "enableSkillCommands": True,
                 "providers": {
                     "chris": {
                         "baseUrl": "http://38.145.220.6:9000/v1",
@@ -289,6 +294,7 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
     assert pi_settings_data["theme"] == "light"
     assert pi_settings_data["defaultProvider"] == "chris"
     assert pi_settings_data["defaultModel"] == "gpt-5.4"
+    assert pi_settings_data["enableSkillCommands"] is True
     assert pi_settings_data["packages"] == ["npm:pi-mcp-adapter"]
 
     pi_models_data = json.loads(pi_models.read_text(encoding="utf-8"))
@@ -308,6 +314,7 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
     cleared_settings = json.loads(pi_settings.read_text(encoding="utf-8"))
     assert "defaultProvider" not in cleared_settings
     assert "defaultModel" not in cleared_settings
+    assert "enableSkillCommands" not in cleared_settings
 
     cleared_models = json.loads(pi_models.read_text(encoding="utf-8"))
     assert "chris" not in cleared_models["providers"]
@@ -526,33 +533,33 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
         "mcpServers": {
             "demo": {
                 "type": "stdio",
-                "command": "${REPO_ROOT}/tools/mcp/demo.sh",
+                "command": "${REPO_ROOT}/tools/mcp/shared/demo.sh",
                 "cwd": "${HOME}/workspace",
                 "env": {"DATA_ROOT": "${REPO_ROOT}/data"},
             }
         },
         "skillRoots": [
             {
-                "path": "${REPO_ROOT}/skills",
-                "exclude": [".system"],
+                "path": "${REPO_ROOT}/skills/shared",
             }
         ],
         "include": ["*"],
-        "globalPromptPath": "${REPO_ROOT}/shared-global-prompt.md",
+        "globalPromptPath": "${REPO_ROOT}/prompts/shared-global-prompt.md",
         "targets": {
             "codex": {
                 "configPath": "${HOME}/.codex/config.toml",
                 "skillsDir": "${HOME}/.codex/skills-shared",
                 "globalPromptPath": "${HOME}/.codex/AGENTS.md",
-                "globalPromptAppendPath": "${REPO_ROOT}/codex-global-prompt.md",
+                "globalPromptAppendPath": "${REPO_ROOT}/prompts/codex-global-prompt.md",
             },
             "pi": {
                 "settingsPath": "${HOME}/.pi/agent/settings.json",
                 "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
                 "skillsDir": "${HOME}/.pi/agent/skills-shared",
                 "packages": ["npm:pi-mcp-adapter"],
+                "enableSkillCommands": True,
                 "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
-                "globalPromptAppendPath": "${REPO_ROOT}/pi-global-prompt.md",
+                "globalPromptAppendPath": "${REPO_ROOT}/prompts/pi-global-prompt.md",
             },
         },
     }
@@ -560,26 +567,36 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
 
     config = load_sync_config(config_path)
 
-    assert config.skill_roots[0].path == repo_root / "skills"
-    assert config.mcp_servers[0].command == str(repo_root / "tools" / "mcp" / "demo.sh")
+    assert config.skill_roots[0].path == repo_root / "skills" / "shared"
+    assert config.mcp_servers[0].command == str(repo_root / "tools" / "mcp" / "shared" / "demo.sh")
     assert config.mcp_servers[0].cwd == str(home / "workspace")
     assert config.mcp_servers[0].env == {"DATA_ROOT": str(repo_root / "data")}
-    assert config.global_prompt_path == repo_root / "shared-global-prompt.md"
+    assert config.global_prompt_path == repo_root / "prompts" / "shared-global-prompt.md"
     assert config.codex is not None
     assert config.codex.config_path == home / ".codex" / "config.toml"
-    assert config.codex.global_prompt_append_path == repo_root / "codex-global-prompt.md"
+    assert config.codex.global_prompt_append_path == repo_root / "prompts" / "codex-global-prompt.md"
     assert config.pi is not None
     assert config.pi.settings_path == home / ".pi" / "agent" / "settings.json"
     assert config.pi.mcp_config_path == home / ".config" / "mcp" / "mcp.json"
     assert config.pi.skills_dir == home / ".pi" / "agent" / "skills-shared"
     assert config.pi.packages == ("npm:pi-mcp-adapter",)
-    assert config.pi.global_prompt_append_path == repo_root / "pi-global-prompt.md"
+    assert config.pi.enable_skill_commands is True
+    assert config.pi.global_prompt_append_path == repo_root / "prompts" / "pi-global-prompt.md"
 
 
 def test_repo_shared_config_includes_expected_managed_pi_packages() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     config = load_sync_config(repo_root / "shared-ai-config.json")
 
+    assert config.codex is not None
+    assert config.codex.skill_roots == (
+        sync_module.SkillRootConfig(path=repo_root / "skills" / "codex", prefix="", exclude=()),
+    )
+    assert config.skill_roots == (
+        sync_module.SkillRootConfig(path=repo_root / "skills" / "shared", prefix="", exclude=()),
+    )
+    assert config.claude is not None
+    assert config.opencode is not None
     assert config.pi is not None
     assert config.pi.packages == (
         "npm:pi-mcp-adapter",
@@ -587,11 +604,207 @@ def test_repo_shared_config_includes_expected_managed_pi_packages() -> None:
         "npm:pi-subagents",
         "npm:pi-nano-context",
     )
+    assert config.pi.enable_skill_commands is True
+
+
+def test_sync_clients_applies_target_specific_skill_roots_and_mcp_servers(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    codex_root = tmp_path / "skills-codex"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    write_skill(codex_root, "codex-subagent", "Codex-only subagent skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    codex_config = tmp_path / "codex" / "config.toml"
+    claude_config = tmp_path / "claude" / ".claude.json"
+    opencode_config = tmp_path / "opencode" / "opencode.jsonc"
+    pi_settings = tmp_path / "pi" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    codex_config.parent.mkdir(parents=True)
+    claude_config.parent.mkdir(parents=True)
+    opencode_config.parent.mkdir(parents=True)
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+    claude_config.write_text("{}\n", encoding="utf-8")
+    opencode_config.write_text("{}\n", encoding="utf-8")
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(codex_config),
+                "skillsDir": str(tmp_path / "codex" / "skills"),
+                "skillRoots": [{"path": str(codex_root)}],
+            },
+            "claude": {
+                "configPath": str(claude_config),
+                "skillsDir": str(tmp_path / "claude" / "skills"),
+                "mcpServers": {
+                    "claude-only": {"type": "stdio", "command": "/bin/true"},
+                },
+            },
+            "opencode": {
+                "configPath": str(opencode_config),
+                "agentPrefix": "skill-",
+                "mcpServers": {
+                    "opencode-only": {"type": "stdio", "command": "/bin/printf"},
+                },
+            },
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-mcp-adapter"],
+                "mcpServers": {
+                    "pi-only": {"type": "stdio", "command": "/bin/date"},
+                },
+            },
+        },
+        servers={
+            "shared": {"type": "stdio", "command": "/bin/echo"},
+        },
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    # target-specific skill present only where expected
+    assert (tmp_path / "codex" / "skills" / "codex-subagent").is_symlink()
+    assert not (tmp_path / "claude" / "skills" / "codex-subagent").exists()
+    assert not (tmp_path / "pi" / "skills" / "codex-subagent").exists()
+
+    # shared skill present in every target that uses a skills dir
+    assert (tmp_path / "codex" / "skills" / "alpha").is_symlink()
+    assert (tmp_path / "claude" / "skills" / "alpha").is_symlink()
+    assert (tmp_path / "pi" / "skills" / "alpha").is_symlink()
+
+    claude_data = json.loads(claude_config.read_text(encoding="utf-8"))
+    assert set(claude_data["mcpServers"]) == {"shared", "claude-only"}
+
+    opencode_data = sync_module._load_jsonc(opencode_config)
+    assert "skill-codex-subagent" not in opencode_data["agent"]
+    assert set(opencode_data["mcp"]) == {"shared", "opencode-only"}
+
+    pi_mcp_data = json.loads(pi_mcp_config.read_text(encoding="utf-8"))
+    assert set(pi_mcp_data["mcpServers"]) == {"shared", "pi-only"}
+
+    assert result["targets"]["opencode"]["agents"] == ["skill-alpha"]
+
+
+def test_sync_clients_include_allows_target_specific_skill_names(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    codex_root = tmp_path / "skills-codex"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    write_skill(codex_root, "codex-subagent", "Codex-only subagent skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    codex_config = tmp_path / "codex" / "config.toml"
+    claude_config = tmp_path / "claude" / ".claude.json"
+    codex_config.parent.mkdir(parents=True)
+    claude_config.parent.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+    claude_config.write_text("{}\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(codex_config),
+                "skillsDir": str(tmp_path / "codex" / "skills"),
+                "skillRoots": [{"path": str(codex_root)}],
+            },
+            "claude": {
+                "configPath": str(claude_config),
+                "skillsDir": str(tmp_path / "claude" / "skills"),
+            },
+        },
+        servers={},
+        include=["alpha", "codex-subagent"],
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    assert result["skills"] == ["alpha"]
+    assert (tmp_path / "codex" / "skills" / "alpha").is_symlink()
+    assert (tmp_path / "codex" / "skills" / "codex-subagent").is_symlink()
+    assert (tmp_path / "claude" / "skills" / "alpha").is_symlink()
+    assert not (tmp_path / "claude" / "skills" / "codex-subagent").exists()
+
+
+def test_sync_clients_rejects_include_names_missing_from_all_roots(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    codex_config = tmp_path / "codex" / "config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(codex_config),
+                "skillsDir": str(tmp_path / "codex" / "skills"),
+            },
+        },
+        servers={},
+        include=["alpha", "missing-skill"],
+    )
+
+    with pytest.raises(SyncError, match="missing-skill"):
+        sync_clients(load_sync_config(config_path), state_path)
+
+
+def test_compute_fingerprint_changes_for_target_specific_skill_files(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    codex_root = tmp_path / "skills-codex"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    write_skill(codex_root, "codex-subagent", "Codex-only subagent skill")
+    config_path = tmp_path / "shared-ai-config.json"
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(tmp_path / "codex" / "config.toml"),
+                "skillsDir": str(tmp_path / "codex" / "skills"),
+                "skillRoots": [{"path": str(codex_root)}],
+            },
+        },
+        servers={},
+    )
+
+    first = compute_fingerprint(config_path)
+    (codex_root / "codex-subagent" / "SKILL.md").write_text(
+        "---\nname: codex-subagent\ndescription: Codex-only subagent skill\n---\n\nUpdated.\n",
+        encoding="utf-8",
+    )
+    second = compute_fingerprint(config_path)
+
+    assert first != second
+
+
+def test_merge_mcp_servers_target_disabled_suppresses_shared_server() -> None:
+    shared = (
+        McpServerConfig(name="shared", transport="stdio", command="/bin/echo"),
+        McpServerConfig(name="override-me", transport="stdio", command="/bin/echo"),
+    )
+    target = (McpServerConfig(name="override-me", transport="stdio", command="/bin/echo", enabled=False),)
+    result = sync_module._merge_mcp_servers(shared, target)
+    names = [s.name for s in result]
+    assert names == ["shared"]
+    assert "override-me" not in names
 
 
 def test_resolve_skills_uses_repo_local_roots_only(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
-    repo_skills = repo_root / "skills"
+    repo_skills = repo_root / "skills" / "shared"
     repo_skills.mkdir(parents=True)
     write_skill(repo_skills, "alpha", "Alpha")
     config_path = repo_root / "shared-ai-config.json"
@@ -599,7 +812,7 @@ def test_resolve_skills_uses_repo_local_roots_only(tmp_path: Path) -> None:
         config_path,
         skill_roots=[
             {
-                "path": "${REPO_ROOT}/skills",
+                "path": "${REPO_ROOT}/skills/shared",
             }
         ],
         targets={},
@@ -624,7 +837,7 @@ def test_vendored_serena_manager_defaults_to_repo_local_serena_wrapper(tmp_path:
     manager_root.mkdir(parents=True)
     config = module.ManagerConfig.default(manager_root)
 
-    assert config.serena_command == str(tmp_path / "repo" / "tools" / "mcp" / "serena-agent.sh")
+    assert config.serena_command == str(tmp_path / "repo" / "tools" / "mcp" / "shared" / "serena-agent.sh")
     assert config.serena_args == ("start-mcp-server",)
 
 
@@ -1944,7 +2157,7 @@ def test_update_codegraph_keeps_real_manifest_when_npm_refresh_fails(tmp_path: P
 
 
 def test_repo_local_ui_ux_pro_max_assets_are_real_paths() -> None:
-    skill_root = Path(__file__).resolve().parents[1] / "skills" / "ui-ux-pro-max"
+    skill_root = Path(__file__).resolve().parents[1] / "skills" / "shared" / "ui-ux-pro-max"
 
     assert (skill_root / "scripts").is_dir()
     assert (skill_root / "scripts" / "search.py").is_file()

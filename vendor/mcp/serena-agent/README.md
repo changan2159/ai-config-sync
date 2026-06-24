@@ -5,5 +5,5 @@ This directory vendors the installed Python package payload needed by `serena-ma
 - `interprompt`
 - `solidlsp`
 
-`tools/mcp/serena-agent.sh` bootstraps a local virtual environment from `requirements.lock`
+`tools/mcp/shared/serena-agent.sh` bootstraps a local virtual environment from `requirements.lock`
 and then runs `python -m serena.cli` with `PYTHONPATH` pointing at `pylib/`.

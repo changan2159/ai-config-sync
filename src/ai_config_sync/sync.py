@@ -43,6 +43,8 @@ class SkillRootConfig:
 class CodexTargetConfig:
     config_path: Path
     skills_dir: Path
+    skill_roots: tuple[SkillRootConfig, ...] = ()
+    mcp_servers: tuple[McpServerConfig, ...] = ()
     global_prompt_path: Path | None = None
     global_prompt_append_path: Path | None = None
 
@@ -51,6 +53,8 @@ class CodexTargetConfig:
 class ClaudeTargetConfig:
     config_path: Path
     skills_dir: Path
+    skill_roots: tuple[SkillRootConfig, ...] = ()
+    mcp_servers: tuple[McpServerConfig, ...] = ()
     global_prompt_path: Path | None = None
     global_prompt_append_path: Path | None = None
 
@@ -59,6 +63,8 @@ class ClaudeTargetConfig:
 class OpencodeTargetConfig:
     config_path: Path
     agent_prefix: str = "skill-"
+    skill_roots: tuple[SkillRootConfig, ...] = ()
+    mcp_servers: tuple[McpServerConfig, ...] = ()
     global_prompt_path: Path | None = None
     global_prompt_append_path: Path | None = None
 
@@ -69,10 +75,13 @@ class PiTargetConfig:
     mcp_config_path: Path
     models_path: Path
     skills_dir: Path
+    skill_roots: tuple[SkillRootConfig, ...] = ()
+    mcp_servers: tuple[McpServerConfig, ...] = ()
     packages: tuple[str, ...] = ("npm:pi-mcp-adapter",)
     providers: dict[str, Any] | None = None
     default_provider: str | None = None
     default_model: str | None = None
+    enable_skill_commands: bool | None = None
     global_prompt_path: Path | None = None
     global_prompt_append_path: Path | None = None
 
@@ -130,31 +139,30 @@ def load_sync_config(path: Path) -> SyncConfig:
     config_path = path.expanduser().resolve()
     repo_root = config_path.parent
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    roots = tuple(
-        SkillRootConfig(
-            path=_resolve_path(item["path"], repo_root),
-            prefix=str(item.get("prefix", "")),
-            exclude=tuple(item.get("exclude", [])),
-        )
-        for item in data.get("skillRoots", [])
-    )
-    mcp_servers = tuple(_parse_mcp_server(name, item, repo_root) for name, item in data.get("mcpServers", {}).items())
+    roots = _parse_skill_roots(data.get("skillRoots", []), repo_root)
+    mcp_servers = _parse_mcp_servers(data.get("mcpServers", {}), repo_root)
     targets = data.get("targets", {})
     codex = CodexTargetConfig(
         config_path=_resolve_path(targets["codex"]["configPath"], repo_root),
         skills_dir=_resolve_path(targets["codex"]["skillsDir"], repo_root),
+        skill_roots=_parse_skill_roots(targets["codex"].get("skillRoots", []), repo_root),
+        mcp_servers=_parse_mcp_servers(targets["codex"].get("mcpServers", {}), repo_root),
         global_prompt_path=_optional_path(targets["codex"].get("globalPromptPath"), repo_root),
         global_prompt_append_path=_optional_path(targets["codex"].get("globalPromptAppendPath"), repo_root),
     ) if "codex" in targets else None
     claude = ClaudeTargetConfig(
         config_path=_resolve_path(targets["claude"]["configPath"], repo_root),
         skills_dir=_resolve_path(targets["claude"]["skillsDir"], repo_root),
+        skill_roots=_parse_skill_roots(targets["claude"].get("skillRoots", []), repo_root),
+        mcp_servers=_parse_mcp_servers(targets["claude"].get("mcpServers", {}), repo_root),
         global_prompt_path=_optional_path(targets["claude"].get("globalPromptPath"), repo_root),
         global_prompt_append_path=_optional_path(targets["claude"].get("globalPromptAppendPath"), repo_root),
     ) if "claude" in targets else None
     opencode = OpencodeTargetConfig(
         config_path=_resolve_path(targets["opencode"]["configPath"], repo_root),
         agent_prefix=str(targets["opencode"].get("agentPrefix", "skill-")),
+        skill_roots=_parse_skill_roots(targets["opencode"].get("skillRoots", []), repo_root),
+        mcp_servers=_parse_mcp_servers(targets["opencode"].get("mcpServers", {}), repo_root),
         global_prompt_path=_optional_path(targets["opencode"].get("globalPromptPath"), repo_root),
         global_prompt_append_path=_optional_path(targets["opencode"].get("globalPromptAppendPath"), repo_root),
     ) if "opencode" in targets else None
@@ -165,10 +173,13 @@ def load_sync_config(path: Path) -> SyncConfig:
             mcp_config_path=_resolve_path(targets["pi"]["mcpConfigPath"], repo_root),
             models_path=_optional_path(targets["pi"].get("modelsPath"), repo_root) or pi_settings_path.with_name("models.json"),
             skills_dir=_resolve_path(targets["pi"]["skillsDir"], repo_root),
+            skill_roots=_parse_skill_roots(targets["pi"].get("skillRoots", []), repo_root),
+            mcp_servers=_parse_mcp_servers(targets["pi"].get("mcpServers", {}), repo_root),
             packages=tuple(str(item) for item in targets["pi"].get("packages", ["npm:pi-mcp-adapter"])),
             providers=dict(targets["pi"].get("providers", {})),
             default_provider=targets["pi"].get("defaultProvider"),
             default_model=targets["pi"].get("defaultModel"),
+            enable_skill_commands=targets["pi"].get("enableSkillCommands"),
             global_prompt_path=_optional_path(targets["pi"].get("globalPromptPath"), repo_root),
             global_prompt_append_path=_optional_path(targets["pi"].get("globalPromptAppendPath"), repo_root),
         )
@@ -187,6 +198,7 @@ def load_sync_config(path: Path) -> SyncConfig:
 
 
 def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
+    _validate_included_skill_names(config)
     previous = _load_state(state_path)
     previous_claude_mcp = previous.get("claude", {}).get("mcp", [])
     previous_codex_mcp = previous.get("codex", {}).get("mcp", [])
@@ -213,6 +225,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_pi_skills_dir = _optional_path(previous.get("pi", {}).get("skills_dir"))
     previous_pi_default_provider = previous.get("pi", {}).get("default_provider")
     previous_pi_default_model = previous.get("pi", {}).get("default_model")
+    previous_pi_enable_skill_commands = previous.get("pi", {}).get("enable_skill_commands")
     codex_legacy_paths = _legacy_default_target_paths("codex")
     claude_legacy_paths = _legacy_default_target_paths("claude")
     opencode_legacy_paths = _legacy_default_target_paths("opencode")
@@ -254,11 +267,11 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             claude_legacy_paths["skills_dirs"],
         )
 
-    skills = resolve_skills(config.skill_roots, config.include)
+    shared_skills = resolve_skills(config.skill_roots, config.include, allow_missing=True)
     enabled_servers = tuple(server for server in config.mcp_servers if server.enabled)
     result: dict[str, Any] = {
         "mcp_servers": [server.name for server in enabled_servers],
-        "skills": [skill.name for skill in skills],
+        "skills": [skill.name for skill in shared_skills],
         "targets": {},
     }
 
@@ -286,12 +299,14 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     active_pi_prompt_path: Path | None = None
 
     if config.codex:
+        codex_skills = resolve_skills(config.skill_roots + config.codex.skill_roots, config.include, allow_missing=True)
+        codex_servers = _merge_mcp_servers(enabled_servers, config.codex.mcp_servers)
         codex_original = config.codex.config_path.read_text(encoding="utf-8") if config.codex.config_path.exists() else ""
         codex_config_payload = (
             config.codex.config_path,
-            build_codex_config_payload(codex_original, enabled_servers, previous_codex_mcp),
+            build_codex_config_payload(codex_original, codex_servers, previous_codex_mcp),
         )
-        codex_skill_plan = plan_skill_links(config.codex.skills_dir, skills, previous_codex_skills)
+        codex_skill_plan = plan_skill_links(config.codex.skills_dir, codex_skills, previous_codex_skills)
         codex_result: dict[str, Any] = {
             "config_path": str(config.codex.config_path),
             "skills": {"linked": list(codex_skill_plan.linked), "removed": list(codex_skill_plan.removed)},
@@ -306,8 +321,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         codex_state = {
             "config_path": str(config.codex.config_path),
             "skills_dir": str(config.codex.skills_dir),
-            "mcp": [server.name for server in enabled_servers],
-            "skills": [skill.name for skill in skills],
+            "mcp": [server.name for server in codex_servers],
+            "skills": [skill.name for skill in codex_skills],
             "global_prompt_path": str(active_codex_prompt_path) if active_codex_prompt_path is not None else None,
             "global_prompt_append_path": str(config.codex.global_prompt_append_path)
             if active_codex_prompt_path is not None and config.codex.global_prompt_append_path is not None
@@ -323,12 +338,14 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             codex_skill_plan = plan_skill_links(previous_codex_skills_dir, [], previous_codex_skills)
 
     if config.claude:
+        claude_skills = resolve_skills(config.skill_roots + config.claude.skill_roots, config.include, allow_missing=True)
+        claude_servers = _merge_mcp_servers(enabled_servers, config.claude.mcp_servers)
         claude_original = config.claude.config_path.read_text(encoding="utf-8") if config.claude.config_path.exists() else ""
         claude_config_payload = (
             config.claude.config_path,
-            build_claude_config_payload(claude_original, enabled_servers, previous_claude_mcp),
+            build_claude_config_payload(claude_original, claude_servers, previous_claude_mcp),
         )
-        claude_skill_plan = plan_skill_links(config.claude.skills_dir, skills, previous_claude_skills)
+        claude_skill_plan = plan_skill_links(config.claude.skills_dir, claude_skills, previous_claude_skills)
         claude_result: dict[str, Any] = {
             "config_path": str(config.claude.config_path),
             "skills": {"linked": list(claude_skill_plan.linked), "removed": list(claude_skill_plan.removed)},
@@ -343,8 +360,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         claude_state = {
             "config_path": str(config.claude.config_path),
             "skills_dir": str(config.claude.skills_dir),
-            "mcp": [server.name for server in enabled_servers],
-            "skills": [skill.name for skill in skills],
+            "mcp": [server.name for server in claude_servers],
+            "skills": [skill.name for skill in claude_skills],
             "global_prompt_path": str(active_claude_prompt_path) if active_claude_prompt_path is not None else None,
             "global_prompt_append_path": str(config.claude.global_prompt_append_path)
             if active_claude_prompt_path is not None and config.claude.global_prompt_append_path is not None
@@ -360,13 +377,15 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             claude_skill_plan = plan_skill_links(previous_claude_skills_dir, [], previous_claude_skills)
 
     if config.opencode:
+        opencode_skills = resolve_skills(config.skill_roots + config.opencode.skill_roots, config.include, allow_missing=True)
+        opencode_servers = _merge_mcp_servers(enabled_servers, config.opencode.mcp_servers)
         opencode_original = config.opencode.config_path.read_text(encoding="utf-8") if config.opencode.config_path.exists() else ""
         opencode_config_payload = (
             config.opencode.config_path,
             build_opencode_config_payload(
                 opencode_original,
-                enabled_servers,
-                skills,
+                opencode_servers,
+                opencode_skills,
                 config.opencode.agent_prefix,
                 previous_opencode_mcp,
                 previous_opencode_agents,
@@ -374,7 +393,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         )
         opencode_result: dict[str, Any] = {
             "config_path": str(config.opencode.config_path),
-            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in skills],
+            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in opencode_skills],
         }
         opencode_prompt_text = build_global_prompt(config.global_prompt_path, config.opencode.global_prompt_append_path)
         if opencode_prompt_text is not None and config.opencode.global_prompt_path is not None:
@@ -386,8 +405,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         opencode_state = {
             "config_path": str(config.opencode.config_path),
             "agent_prefix": config.opencode.agent_prefix,
-            "mcp": [server.name for server in enabled_servers],
-            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in skills],
+            "mcp": [server.name for server in opencode_servers],
+            "agents": [f"{config.opencode.agent_prefix}{skill.name}" for skill in opencode_skills],
             "global_prompt_path": str(active_opencode_prompt_path) if active_opencode_prompt_path is not None else None,
             "global_prompt_append_path": str(config.opencode.global_prompt_append_path)
             if active_opencode_prompt_path is not None and config.opencode.global_prompt_append_path is not None
@@ -401,6 +420,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         )
 
     if config.pi:
+        pi_skills = resolve_skills(config.skill_roots + config.pi.skill_roots, config.include, allow_missing=True)
+        pi_servers = _merge_mcp_servers(enabled_servers, config.pi.mcp_servers)
         pi_settings_original = config.pi.settings_path.read_text(encoding="utf-8") if config.pi.settings_path.exists() else ""
         pi_settings_payload = (
             config.pi.settings_path,
@@ -414,19 +435,21 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
                 config.pi.default_model,
                 previous_pi_default_provider,
                 previous_pi_default_model,
+                config.pi.enable_skill_commands,
+                previous_pi_enable_skill_commands,
             ),
         )
         pi_mcp_original = config.pi.mcp_config_path.read_text(encoding="utf-8") if config.pi.mcp_config_path.exists() else ""
         pi_mcp_config_payload = (
             config.pi.mcp_config_path,
-            build_pi_mcp_config_payload(pi_mcp_original, enabled_servers, previous_pi_mcp),
+            build_pi_mcp_config_payload(pi_mcp_original, pi_servers, previous_pi_mcp),
         )
         pi_models_original = config.pi.models_path.read_text(encoding="utf-8") if config.pi.models_path.exists() else ""
         pi_models_payload = (
             config.pi.models_path,
             build_pi_models_payload(pi_models_original, config.pi.providers or {}, previous_pi_providers),
         )
-        pi_skill_plan = plan_skill_links(config.pi.skills_dir, skills, previous_pi_skills)
+        pi_skill_plan = plan_skill_links(config.pi.skills_dir, pi_skills, previous_pi_skills)
         pi_result: dict[str, Any] = {
             "settings_path": str(config.pi.settings_path),
             "mcp_config_path": str(config.pi.mcp_config_path),
@@ -439,6 +462,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             pi_result["default_provider"] = config.pi.default_provider
         if config.pi.default_model is not None:
             pi_result["default_model"] = config.pi.default_model
+        if config.pi.enable_skill_commands is not None:
+            pi_result["enable_skill_commands"] = config.pi.enable_skill_commands
         pi_prompt_text = build_global_prompt(config.global_prompt_path, config.pi.global_prompt_append_path)
         if pi_prompt_text is not None and config.pi.global_prompt_path is not None:
             pi_result["global_prompt_path"] = str(config.pi.global_prompt_path)
@@ -455,8 +480,9 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             "providers": sorted((config.pi.providers or {}).keys()),
             "default_provider": config.pi.default_provider,
             "default_model": config.pi.default_model,
-            "mcp": [server.name for server in enabled_servers],
-            "skills": [skill.name for skill in skills],
+            "enable_skill_commands": config.pi.enable_skill_commands,
+            "mcp": [server.name for server in pi_servers],
+            "skills": [skill.name for skill in pi_skills],
             "global_prompt_path": str(active_pi_prompt_path) if active_pi_prompt_path is not None else None,
             "global_prompt_append_path": str(config.pi.global_prompt_append_path)
             if active_pi_prompt_path is not None and config.pi.global_prompt_append_path is not None
@@ -481,6 +507,8 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
                     None,
                     previous_pi_default_provider,
                     previous_pi_default_model,
+                    None,
+                    previous_pi_enable_skill_commands,
                 ),
             )
         if previous_pi_mcp_config_path is not None:
@@ -597,6 +625,7 @@ def compute_fingerprint(config_path: Path) -> str:
     digest = hashlib.sha256()
     digest.update(config_path.read_bytes())
     config = load_sync_config(config_path)
+    _validate_included_skill_names(config)
     if config.global_prompt_path is not None:
         digest.update(config.global_prompt_path.read_bytes())
     for overlay_path in (
@@ -607,15 +636,22 @@ def compute_fingerprint(config_path: Path) -> str:
     ):
         if overlay_path is not None:
             digest.update(overlay_path.read_bytes())
-    for skill in resolve_skills(config.skill_roots, config.include):
+    for skill in resolve_skills(_all_skill_roots(config), config.include, allow_missing=True):
         digest.update(skill.skill_file.read_bytes())
     return digest.hexdigest()
 
 
-def resolve_skills(roots: tuple[SkillRootConfig, ...], include: tuple[str, ...]) -> list[ResolvedSkill]:
+def resolve_skills(
+    roots: tuple[SkillRootConfig, ...],
+    include: tuple[str, ...],
+    *,
+    allow_missing: bool = False,
+) -> list[ResolvedSkill]:
     discovered = discover_skills(roots)
     if not include or include == ("*",):
         names = sorted(discovered.keys())
+    elif allow_missing:
+        names = [name for name in include if name in discovered]
     else:
         names = list(include)
     resolved: list[ResolvedSkill] = []
@@ -637,6 +673,39 @@ def resolve_skills(roots: tuple[SkillRootConfig, ...], include: tuple[str, ...])
     return resolved
 
 
+def _all_skill_roots(config: SyncConfig) -> tuple[SkillRootConfig, ...]:
+    roots = list(config.skill_roots)
+    if config.codex:
+        roots.extend(config.codex.skill_roots)
+    if config.claude:
+        roots.extend(config.claude.skill_roots)
+    if config.opencode:
+        roots.extend(config.opencode.skill_roots)
+    if config.pi:
+        roots.extend(config.pi.skill_roots)
+    return tuple(roots)
+
+
+def _validate_included_skill_names(config: SyncConfig) -> None:
+    if not config.include or config.include == ("*",):
+        return
+    discovered = discover_skills(_all_skill_roots(config))
+    missing = [name for name in config.include if name not in discovered]
+    if missing:
+        missing_names = ", ".join(sorted(dict.fromkeys(missing)))
+        raise SyncError(f"Configured include skills were not found in any managed skill root: {missing_names}")
+
+
+def _merge_mcp_servers(
+    shared_servers: tuple[McpServerConfig, ...],
+    target_servers: tuple[McpServerConfig, ...],
+) -> tuple[McpServerConfig, ...]:
+    merged: dict[str, McpServerConfig] = {server.name: server for server in shared_servers}
+    for server in target_servers:
+        merged[server.name] = server
+    return tuple(server for server in merged.values() if server.enabled)
+
+
 def discover_skills(roots: tuple[SkillRootConfig, ...]) -> dict[str, Path]:
     discovered: dict[str, Path] = {}
     for root in roots:
@@ -652,6 +721,21 @@ def discover_skills(roots: tuple[SkillRootConfig, ...]) -> dict[str, Path]:
             name = f"{root.prefix}{child.name}"
             discovered[name] = child
     return discovered
+
+
+def _parse_skill_roots(items: list[dict[str, Any]] | tuple[dict[str, Any], ...], repo_root: Path) -> tuple[SkillRootConfig, ...]:
+    return tuple(
+        SkillRootConfig(
+            path=_resolve_path(item["path"], repo_root),
+            prefix=str(item.get("prefix", "")),
+            exclude=tuple(item.get("exclude", [])),
+        )
+        for item in items
+    )
+
+
+def _parse_mcp_servers(items: dict[str, Any], repo_root: Path) -> tuple[McpServerConfig, ...]:
+    return tuple(_parse_mcp_server(name, item, repo_root) for name, item in items.items())
 
 
 def plan_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_names: list[str]) -> SkillLinkPlan:
@@ -796,6 +880,8 @@ def sync_pi_settings(
     default_model: str | None = None,
     previous_default_provider: str | None = None,
     previous_default_model: str | None = None,
+    enable_skill_commands: bool | None = None,
+    previous_enable_skill_commands: bool | None = None,
 ) -> None:
     original = settings_path.read_text(encoding="utf-8") if settings_path.exists() else ""
     _atomic_write_text(
@@ -810,6 +896,8 @@ def sync_pi_settings(
             default_model,
             previous_default_provider,
             previous_default_model,
+            enable_skill_commands,
+            previous_enable_skill_commands,
         ),
     )
 
@@ -824,6 +912,8 @@ def build_pi_settings_payload(
     default_model: str | None = None,
     previous_default_provider: str | None = None,
     previous_default_model: str | None = None,
+    enable_skill_commands: bool | None = None,
+    previous_enable_skill_commands: bool | None = None,
 ) -> str:
     data = json.loads(original) if original.strip() else {}
     current_packages = _normalize_string_list(data.get("packages"))
@@ -846,6 +936,10 @@ def build_pi_settings_payload(
         data["defaultModel"] = default_model
     elif previous_default_model is not None and data.get("defaultModel") == previous_default_model:
         data.pop("defaultModel", None)
+    if enable_skill_commands is not None:
+        data["enableSkillCommands"] = enable_skill_commands
+    elif previous_enable_skill_commands is not None and data.get("enableSkillCommands") == previous_enable_skill_commands:
+        data.pop("enableSkillCommands", None)
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 

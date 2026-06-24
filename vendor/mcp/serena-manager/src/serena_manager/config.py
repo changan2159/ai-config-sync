@@ -24,5 +24,5 @@ class ManagerConfig:
         repo_root = root.resolve().parents[2]
         return cls(
             state_root=root / "state",
-            serena_command=str(repo_root / "tools" / "mcp" / "serena-agent.sh"),
+            serena_command=str(repo_root / "tools" / "mcp" / "shared" / "serena-agent.sh"),
         )

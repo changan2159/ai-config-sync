@@ -2,51 +2,54 @@
   "mcpServers": {
     "fetch": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/fetch.sh"
+      "command": "${REPO_ROOT}/tools/mcp/shared/fetch.sh"
     },
     "serena": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/serena-manager.sh"
+      "command": "${REPO_ROOT}/tools/mcp/shared/serena-manager.sh"
     },
     "node_repl": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/node-repl-linux.sh",
+      "command": "${REPO_ROOT}/tools/mcp/shared/node-repl-linux.sh",
       "toolTimeoutSec": 120
     },
     "codegraph": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/codegraph.sh",
+      "command": "${REPO_ROOT}/tools/mcp/shared/codegraph.sh",
       "args": ["serve", "--mcp"],
       "toolTimeoutSec": 120
     }
   },
   "skillRoots": [
     {
-      "path": "${REPO_ROOT}/skills",
-      "prefix": "",
-      "exclude": [".system"]
+      "path": "${REPO_ROOT}/skills/shared"
     }
   ],
-  "globalPromptPath": "${REPO_ROOT}/shared-global-prompt.md",
+  "globalPromptPath": "${REPO_ROOT}/prompts/shared-global-prompt.md",
   "include": ["*"],
   "targets": {
     "codex": {
       "configPath": "${HOME}/.codex/config.toml",
       "skillsDir": "${HOME}/.codex/skills-shared",
+      "skillRoots": [
+        {
+          "path": "${REPO_ROOT}/skills/codex"
+        }
+      ],
       "globalPromptPath": "${HOME}/.codex/AGENTS.md",
-      "globalPromptAppendPath": "${REPO_ROOT}/codex-global-prompt.md"
+      "globalPromptAppendPath": "${REPO_ROOT}/prompts/codex-global-prompt.md"
     },
     "claude": {
       "configPath": "${HOME}/.claude.json",
       "skillsDir": "${HOME}/.claude/skills",
       "globalPromptPath": "${HOME}/.claude/CLAUDE.md",
-      "globalPromptAppendPath": "${REPO_ROOT}/claude-global-prompt.md"
+      "globalPromptAppendPath": "${REPO_ROOT}/prompts/claude-global-prompt.md"
     },
     "opencode": {
       "configPath": "${HOME}/.config/opencode/opencode.jsonc",
       "agentPrefix": "skill-",
       "globalPromptPath": "${HOME}/.config/opencode/AGENTS.md",
-      "globalPromptAppendPath": "${REPO_ROOT}/opencode-global-prompt.md"
+      "globalPromptAppendPath": "${REPO_ROOT}/prompts/opencode-global-prompt.md"
     },
     "pi": {
       "settingsPath": "${HOME}/.pi/agent/settings.json",
@@ -59,6 +62,7 @@
         "npm:pi-subagents",
         "npm:pi-nano-context"
       ],
+      "enableSkillCommands": true,
       "defaultProvider": "openai",
       "defaultModel": "gpt-5.4",
       "providers": {
@@ -67,7 +71,7 @@
         }
       },
       "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
-      "globalPromptAppendPath": "${REPO_ROOT}/pi-global-prompt.md"
+      "globalPromptAppendPath": "${REPO_ROOT}/prompts/pi-global-prompt.md"
     }
   }
 }

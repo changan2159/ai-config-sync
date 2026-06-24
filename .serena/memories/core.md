@@ -1,6 +1,6 @@
 - Purpose: sync shared MCP server definitions, shared skill sources, and a shared global prompt across Codex, Claude Code, OpenCode, and Pi.
 - Primary source config: `shared-ai-config.json`.
-- Shared global prompt source: `shared-global-prompt.md`.
+- Shared global prompt source: `prompts/shared-global-prompt.md`.
 - Prompt model: shared core prompt plus optional per-target overlay files; Codex, Claude, and OpenCode each currently append their own overlay files after the shared core.
 - Main implementation: `src/ai_config_sync/sync.py` owns config loading, skill discovery, target rendering, state tracking, and service helpers.
 - CLI entrypoint: `src/ai_config_sync/cli.py` exposes one-shot sync, watch mode, service control, and MCP add/remove commands.

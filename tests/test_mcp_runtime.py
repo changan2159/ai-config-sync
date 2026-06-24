@@ -47,7 +47,7 @@ def test_repo_mcp_wrapper_scripts_are_executable() -> None:
     )
 
     for name in wrapper_names:
-        wrapper = repo_root / "tools" / "mcp" / name
+        wrapper = repo_root / "tools" / "mcp" / "shared" / name
         assert wrapper.is_file()
         assert wrapper.stat().st_mode & 0o111, f"{wrapper} must be executable"
 

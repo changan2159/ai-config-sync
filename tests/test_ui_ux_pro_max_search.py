@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def _load_module():
-    module_path = Path(__file__).resolve().parents[1] / "skills" / "ui-ux-pro-max" / "scripts" / "search.py"
+    module_path = Path(__file__).resolve().parents[1] / "skills" / "shared" / "ui-ux-pro-max" / "scripts" / "search.py"
     spec = importlib.util.spec_from_file_location("ui_ux_pro_max_search", module_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
