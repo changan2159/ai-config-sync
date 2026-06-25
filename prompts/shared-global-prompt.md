@@ -104,6 +104,7 @@
 - For finding implementation locations, related files, call chains, or project structure, prefer `fast-codebase-retrieval`; pair with `serena-workflow` when symbol confirmation or cross-file ownership matters.
 - For non-trivial brownfield work in symbol-friendly languages (C#, TypeScript, Java, Python, Go), prefer `serena-workflow` to anchor navigation before broad text-only exploration.
 - For C# or .NET-specific symbol tracing, call-chain inspection, and type navigation, prefer `csharp-symbolic-workflow` over generic text search or broad Serena queries.
+- For Java or Spring Boot development (feature work, debugging, schema changes, security, testing, dependency management), prefer `java-spring-workflow` to stay on correct Spring Boot 3 patterns and avoid Boot 2 regressions; pair with `serena-workflow` for brownfield symbol tracing.
 - For rule, docs, memory, glossary, or durable-context updates, prefer `agents-self-evolution`.
 - For code review or second-pass verification, prefer `code-review`; use `security-review` when security is the primary concern.
 - For product-style frontend implementation, redesign, polish, or responsive fixes, prefer `frontend-design`; pair with `frontend-ui-engineering` when component logic or shared UI architecture is substantial.
