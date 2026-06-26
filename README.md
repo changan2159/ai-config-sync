@@ -204,12 +204,20 @@ sudo systemctl restart opencode-web.service
 Script entrypoints:
 
 ```bash
+./scripts/paseo/update-paseo.sh
+./scripts/paseo/update-paseo.sh 0.1.101
+./scripts/codex/update-codex.sh
+./scripts/codex/update-codex.sh 0.142.0
 ./scripts/claude/update-claude.sh
 ./scripts/claude/update-claude.sh 2.1.183
 ./scripts/opencode/update-opencode.sh
 ./scripts/opencode/update-opencode.sh 1.17.8
+./scripts/pi/update-pi.sh
+./scripts/pi/update-pi.sh 0.73.0
 ./scripts/pi-web/update-pi-web.sh
 ./scripts/pi-web/update-pi-web.sh 1.21.2
+./update-all-clients.sh
+./update-all-clients.sh --with-pi-web
 ./update-all-mcp.sh
 ./scripts/mcp/update-serena-agent.sh
 ./scripts/mcp/update-fetch.sh
@@ -231,7 +239,10 @@ Script entrypoints:
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
 - Pi prompt is composed from the shared core plus the Pi overlay, then written to `/home/admin101/.pi/agent/AGENTS.md`
 - Claude should use the native user-level install under `/home/admin101/.local/bin/claude`; avoid keeping a parallel global npm install because `claude update` warns on multi-install drift and the native updater already manages versions under `/home/admin101/.local/share/claude/versions/`
+- `scripts/paseo/update-paseo.sh` reuses the current Paseo npm install prefix, updates `@getpaseo/cli`, backs up `~/.paseo/config.json` when present, and restarts the local daemon from `PASEO_HOME` or `~/.paseo` while reusing the current listen/relay mode when status data is available
+- `scripts/codex/update-codex.sh` reuses the current Codex npm install prefix and escalates through `sudo` automatically when the existing global prefix is not user-writable
 - `scripts/claude/update-claude.sh` also pins VS Code's `claudeCode.claudeProcessWrapper` setting to `/home/admin101/.local/bin/claude` so the extension can launch Claude even when the editor process does not inherit `~/.local/bin` on `PATH`
+- `update-all-clients.sh` runs the managed Paseo, Codex, Claude, OpenCode, and Pi update scripts in sequence; add `--with-pi-web` to include the Pi web service runtime too
 - Plugin cache skills are not synced by default
 - Shared skill sync mirrors direct child skills under repo-local `skills/shared/`; client-specific repo skills live under `skills/<client>/` and are attached only from that target's `skillRoots`
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources; OpenCode has no file-system `skillsDir` — skills are distributed as config entries rather than synced directories, so the `opencode` target intentionally omits `skillsDir`

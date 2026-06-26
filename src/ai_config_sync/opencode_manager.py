@@ -26,6 +26,7 @@ MANAGED_OPENCODE_SERVICE_NAME = "opencode-web.service"
 LEGACY_OPENCODE_USER_SERVICE_NAME = "opencode-web-managed.service"
 OPENCODE_RELEASE_REPO = "https://github.com/anomalyco/opencode/releases/download"
 OPENCODE_RELEASES_API = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
+OPENCODE_RELEASES_LATEST_PAGE = "https://github.com/anomalyco/opencode/releases/latest"
 
 
 @dataclass(frozen=True)
@@ -398,16 +399,37 @@ def _latest_opencode_version() -> str:
             "-H",
             "X-GitHub-Api-Version: 2022-11-28",
             OPENCODE_RELEASES_API,
-        ]
+        ],
+        check=False,
     )
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise SyncError("Unable to parse the latest OpenCode release metadata from GitHub") from exc
-    version = str(payload.get("tag_name", "")).strip().removeprefix("v")
-    if not version:
-        raise SyncError("Unable to resolve the latest OpenCode release version from GitHub")
-    return version
+    if proc.returncode == 0:
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise SyncError("Unable to parse the latest OpenCode release metadata from GitHub") from exc
+        version = str(payload.get("tag_name", "")).strip().removeprefix("v")
+        if version:
+            return version
+
+    fallback = _run_command(
+        ["curl", "-fsSI", OPENCODE_RELEASES_LATEST_PAGE],
+        check=False,
+    )
+    if fallback.returncode == 0:
+        location_match = next(
+            (
+                line.split(":", 1)[1].strip()
+                for line in fallback.stdout.splitlines()
+                if line.lower().startswith("location:")
+            ),
+            None,
+        )
+        if location_match:
+            version = Path(location_match).name.strip().removeprefix("v")
+            if version:
+                return version
+
+    raise SyncError("Unable to resolve the latest OpenCode release version from GitHub")
 
 
 def _release_target() -> str:

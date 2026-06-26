@@ -225,3 +225,135 @@ def test_sync_pi_packages_uninstalls_stale_managed_dependency_even_when_node_mod
         "removed": ["npm:pi-nano-context"],
         "installed_package_names": ["manual-package"],
     }
+
+
+def test_inspect_pi_packages_reports_managed_versions(tmp_path: Path) -> None:
+    settings_path = tmp_path / "pi" / "settings.json"
+    package_dir = settings_path.parent / "npm"
+    package_json = package_dir / "package.json"
+    package_dir.mkdir(parents=True)
+    package_json.write_text(
+        json.dumps(
+            {
+                "name": "pi-extensions",
+                "private": True,
+                "dependencies": {
+                    "pi-subagents": "^0.30.0",
+                    "manual-package": "^1.0.0",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    installed_subagents = package_dir / "node_modules" / "pi-subagents"
+    installed_subagents.mkdir(parents=True, exist_ok=True)
+    (installed_subagents / "package.json").write_text('{"name":"pi-subagents","version":"0.31.2"}\n', encoding="utf-8")
+
+    result = pi_package_manager.inspect_pi_packages(
+        settings_path=settings_path,
+        packages=("npm:pi-subagents", "npm:pi-goal"),
+        latest_version_resolver=lambda name: {"pi-subagents": "0.32.0", "pi-goal": "0.2.0"}.get(name),
+    )
+
+    assert result["managed_entries"] == [
+        {
+            "spec": "npm:pi-subagents",
+            "name": "pi-subagents",
+            "declared_version": "^0.30.0",
+            "installed_version": "0.31.2",
+            "latest_version": "0.32.0",
+            "has_update": True,
+            "installed": True,
+        },
+        {
+            "spec": "npm:pi-goal",
+            "name": "pi-goal",
+            "declared_version": None,
+            "installed_version": None,
+            "latest_version": "0.2.0",
+            "has_update": False,
+            "installed": False,
+        },
+    ]
+
+
+def test_upgrade_pi_packages_reinstalls_all_managed_specs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_path = tmp_path / "pi" / "settings.json"
+    package_dir = settings_path.parent / "npm"
+    package_json = package_dir / "package.json"
+    package_dir.mkdir(parents=True)
+    package_json.write_text('{"name":"pi-extensions","private":true,"dependencies":{}}\n', encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run_command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        assert cwd == package_dir
+        calls.append(args)
+        for package_name in ("pi-subagents", "pi-goal"):
+            package_path = package_dir / "node_modules" / package_name
+            package_path.mkdir(parents=True, exist_ok=True)
+            (package_path / "package.json").write_text(
+                json.dumps({"name": package_name, "version": "1.0.0"}) + "\n",
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(pi_package_manager, "_run_command", fake_run_command)
+
+    result = pi_package_manager.upgrade_pi_packages(
+        settings_path=settings_path,
+        packages=("npm:pi-subagents", "npm:pi-goal"),
+    )
+
+    assert calls == [["npm", "install", "--no-fund", "--no-audit", "pi-subagents", "pi-goal"]]
+    assert result["upgraded"] == ["npm:pi-subagents", "npm:pi-goal"]
+
+
+def test_upgrade_pi_packages_supports_single_target_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_path = tmp_path / "pi" / "settings.json"
+    package_dir = settings_path.parent / "npm"
+    package_json = package_dir / "package.json"
+    package_dir.mkdir(parents=True)
+    package_json.write_text(
+        json.dumps(
+            {
+                "name": "pi-extensions",
+                "private": True,
+                "dependencies": {
+                    "pi-subagents": "^0.31.0",
+                    "pi-goal": "^0.1.7",
+                },
+            }
+        ) + "\n",
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run_command(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        assert cwd == package_dir
+        calls.append(args)
+        for package_name, version in (("pi-subagents", "1.1.0"), ("pi-goal", "0.1.7")):
+            package_path = package_dir / "node_modules" / package_name
+            package_path.mkdir(parents=True, exist_ok=True)
+            (package_path / "package.json").write_text(
+                json.dumps({"name": package_name, "version": version}) + "\n",
+                encoding="utf-8",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(pi_package_manager, "_run_command", fake_run_command)
+
+    result = pi_package_manager.upgrade_pi_packages(
+        settings_path=settings_path,
+        packages=("npm:pi-subagents", "npm:pi-goal"),
+        target_specs=("npm:pi-subagents",),
+    )
+
+    assert calls == [["npm", "install", "--no-fund", "--no-audit", "pi-subagents"]]
+    assert result["upgraded"] == ["npm:pi-subagents"]

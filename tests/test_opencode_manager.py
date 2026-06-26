@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from ai_config_sync.opencode_manager import (
     _binary_candidates,
     _build_launcher_script,
     _build_service_unit,
+    _latest_opencode_version,
     _require_non_root_runtime_install,
     default_opencode_paths,
 )
@@ -73,3 +75,24 @@ def test_require_non_root_runtime_install_rejects_sudo_path(tmp_path: Path, monk
 
     with pytest.raises(RuntimeError, match="opencode-install must run as the target login user"):
         _require_non_root_runtime_install(paths)
+
+
+def test_latest_opencode_version_falls_back_to_release_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            subprocess.CompletedProcess(args=["curl"], returncode=22, stdout="", stderr="403"),
+            subprocess.CompletedProcess(
+                args=["curl"],
+                returncode=0,
+                stdout=(
+                    "HTTP/2 302\n"
+                    "location: https://github.com/anomalyco/opencode/releases/tag/v1.17.11\n"
+                ),
+                stderr="",
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("ai_config_sync.opencode_manager._run_command", lambda *args, **kwargs: next(responses))
+
+    assert _latest_opencode_version() == "1.17.11"

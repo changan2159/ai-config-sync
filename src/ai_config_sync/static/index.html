@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Config Sync</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#eef3f8;--bg-alt:#e6ecf3;
+  --surface:#ffffff;--surface2:#f4f7fc;--surface3:#e9eef5;
+  --border:#d7deea;--border-light:#e4eaf2;
+  --text:#121c2b;--muted:#6b7a92;--muted-lighter:#8f9db0;
+  --accent:#3b82f6;--accent-soft:rgba(59,130,246,.08);--accent-glow:rgba(59,130,246,.15);
+  --green:#16a34a;--green-soft:rgba(22,163,74,.08);
+  --yellow:#d97706;--yellow-soft:rgba(217,119,6,.08);
+  --red:#dc2626;--red-soft:rgba(220,38,38,.08);
+  --purple:#7c3aed;--purple-soft:rgba(124,58,237,.08);
+  --orange:#ea6d2f;--orange-soft:rgba(234,109,47,.08);
+  --shadow-sm:0 1px 3px rgba(18,28,43,.06);
+  --shadow-md:0 4px 12px rgba(18,28,43,.07),0 1px 3px rgba(18,28,43,.04);
+  --shadow-lg:0 8px 28px rgba(18,28,43,.08);
+  --shadow-xl:0 16px 48px rgba(18,28,43,.1);
+  --radius:12px;--radius-sm:8px;--radius-lg:16px;--radius-xl:20px;
+  --font:400 13.5px/1.6 'Inter','SF Pro Display','PingFang SC','Microsoft YaHei','Segoe UI',sans-serif;
+  --mono:'SF Mono','JetBrains Mono','Fira Code',ui-monospace,Menlo,monospace;
+}
+html.dark{
+  --bg:#0c121e;--bg-alt:#0f1624;
+  --surface:#161f30;--surface2:#1c263a;--surface3:#131b2a;
+  --border:#263047;--border-light:#1e2840;
+  --text:#d7deea;--muted:#7a8ba6;--muted-lighter:#5d6d88;
+  --accent:#60a5fa;--accent-soft:rgba(96,165,250,.1);--accent-glow:rgba(96,165,250,.18);
+  --green:#4ade80;--green-soft:rgba(74,222,128,.1);
+  --yellow:#f9c35e;--yellow-soft:rgba(249,195,94,.1);
+  --red:#f87171;--red-soft:rgba(248,113,113,.1);
+  --purple:#a78bfa;--purple-soft:rgba(167,139,250,.1);
+  --orange:#fd9a56;--orange-soft:rgba(253,154,86,.1);
+  --shadow-sm:0 1px 3px rgba(0,0,0,.2);
+  --shadow-md:0 4px 12px rgba(0,0,0,.25);
+  --shadow-lg:0 8px 28px rgba(0,0,0,.3);
+  --shadow-xl:0 16px 48px rgba(0,0,0,.35);
+}
+body{background:var(--bg);color:var(--text);font:var(--font);min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 50% at 10% 80%, rgba(59,130,246,.07), transparent 60%),radial-gradient(ellipse 60% 40% at 90% 20%, rgba(124,58,237,.05), transparent 60%);pointer-events:none;z-index:0}
+a{color:var(--accent);text-decoration:none}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+/* ── header ── */
+header{position:sticky;top:0;z-index:100;background:color-mix(in srgb, var(--surface) 80%, transparent);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:8px;height:56px}
+header h1{font-size:15px;font-weight:700;white-space:nowrap}
+.hdr-gap{flex:1}
+.hdr-info{font-size:11.5px;color:var(--muted);white-space:nowrap}
+#daemon-wrap{display:flex;align-items:center;gap:6px;font-size:12px}
+#daemon-label{color:var(--muted);font-size:12px}
+/* ── buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:6px 13px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;line-height:1.4;box-shadow:var(--shadow-sm)}
+.btn:hover{border-color:var(--accent);background:var(--surface);box-shadow:var(--shadow-md)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 1px 4px var(--accent-glow)}
+.btn.primary:hover{opacity:.9;box-shadow:0 2px 8px var(--accent-glow)}
+.btn.danger{color:var(--red);border-color:var(--red)}
+.btn.danger:hover{background:var(--red-soft)}
+.btn.sm{padding:3px 9px;font-size:11.5px;border-radius:6px}
+.btn.sm.icon{padding:3px 7px;font-size:13px}
+.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+/* ── layout ── */
+main{max-width:1440px;margin:0 auto;padding:20px;display:flex;flex-direction:column;gap:16px;position:relative;z-index:1}
+/* ── card / section ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-md)}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px}
+.card-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.card-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
+/* ── badges ── */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:500;border:1px solid transparent}
+.badge.green{background:var(--green-soft);color:var(--green);border-color:var(--green)}
+.badge.yellow{background:var(--yellow-soft);color:var(--yellow);border-color:var(--yellow)}
+.badge.red{background:var(--red-soft);color:var(--red);border-color:var(--red)}
+.badge.blue{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.badge.muted{background:var(--surface3);color:var(--muted);border-color:transparent}
+.mem-hot td{background:color-mix(in srgb, var(--red-soft) 55%, transparent)}
+.mem-warn td{background:color-mix(in srgb, var(--yellow-soft) 50%, transparent)}
+/* ── dot ── */
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.active{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot.inactive,.dot.dead{background:var(--red)}
+.dot.unknown{background:var(--muted)}
+/* ── tools grid ── */
+.tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;padding:18px}
+.tool-card{padding:18px;border:1px solid var(--border);border-radius:var(--radius);position:relative;transition:all .2s;box-shadow:var(--shadow-sm)}
+.tool-card:hover{box-shadow:var(--shadow-lg);border-color:color-mix(in srgb, var(--accent) 30%, var(--border));transform:translateY(-1px)}
+.tool-card::before{content:'';position:absolute;top:0;left:16px;right:16px;height:3px;border-radius:0 0 3px 3px;background:var(--tc,var(--accent))}
+.tool-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px}
+.tool-name{font-size:16px;font-weight:700;margin-bottom:2px}
+.tool-cmd{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:500;border:1px solid var(--border-light);background:var(--surface)}
+.kv-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.kv-card{padding:10px 12px;border:1px solid var(--border-light);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm)}
+.kv-card span{display:block;font-size:10.5px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.kv-card strong{font-size:13px;font-family:var(--mono);word-break:break-word}
+.stack-title{display:flex;align-items:baseline;gap:6px}
+.stack-title strong{font-size:13px;font-weight:600}
+.stack-title small{font-size:11px;color:var(--muted)}
+.path-strip{margin:0 0 12px;padding:8px 10px;border:1px dashed var(--border);border-radius:var(--radius-sm);background:var(--surface2);font-size:11.5px;color:var(--muted);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tool-btns{display:flex;gap:6px;flex-wrap:wrap}
+.tool-subpanel{margin-top:12px;padding:14px;border:1px solid var(--border-light);border-radius:var(--radius);background:var(--surface2)}
+.tool-subhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+.tool-subtitle{font-size:13px;font-weight:700}
+.tool-submeta{font-size:11px;color:var(--muted);margin-top:2px}
+.tool-subgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+@media(max-width:680px){.tool-subgrid{grid-template-columns:1fr}}
+.pkg-tag{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;padding:6px 8px;border-radius:var(--radius-sm)}
+.pkg-tag strong{font-size:11px;line-height:1.25}
+.pkg-tag small{font-size:10px;color:var(--muted);font-family:var(--mono)}
+.pkg-table-wrap{border:1px solid var(--border);border-radius:var(--radius);overflow:auto;margin-bottom:10px}
+.pkg-cell-name{min-width:220px}
+.pkg-cell-name strong{display:block;font-size:12px;line-height:1.3}
+.pkg-cell-name small{display:block;margin-top:3px;font-size:10px;color:var(--muted);font-family:var(--mono);word-break:break-all}
+.pkg-actions{display:flex;justify-content:flex-end}
+.mcp-group-list{display:flex;flex-direction:column;gap:12px;padding:16px}
+.mcp-group{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);overflow:hidden}
+.mcp-group-head{padding:12px 14px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border-light)}
+.mcp-group-title{min-width:0;flex:1}
+.mcp-group-title strong{display:block;font-size:13px;line-height:1.35;word-break:break-all}
+.mcp-group-title small{display:block;margin-top:4px;font-size:11px;color:var(--muted);font-family:var(--mono);word-break:break-all}
+.mcp-group-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.mcp-group-body{padding:0}
+.detail-box{margin-top:12px;border:1px solid var(--border-light);border-radius:var(--radius-sm)}
+.detail-box summary{list-style:none;cursor:pointer;padding:9px 12px;font-size:12px;font-weight:600;color:var(--muted);border-radius:var(--radius-sm);transition:color .15s}
+.detail-box summary::-webkit-details-marker{display:none}
+.detail-box summary:hover{color:var(--text)}
+.detail-box[open] summary{border-bottom:1px solid var(--border-light);color:var(--text);border-radius:var(--radius-sm) var(--radius-sm) 0 0}
+.detail-grid{display:grid;grid-template-columns:140px 1fr;gap:10px;padding:12px}
+.detail-grid+.detail-grid{border-top:1px solid var(--border-light)}
+.detail-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.detail-value{font-size:12px;color:var(--text);word-break:break-all;font-family:var(--mono)}
+.detail-box.compact{margin-top:10px}
+.subtle{font-size:11px;color:var(--muted-lighter)}
+/* ── sync panel ── */
+.sync-body{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.srow2{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.slabel{font-size:12px;color:var(--muted);width:60px;flex-shrink:0}
+.tog-wrap{display:flex;gap:6px;flex-wrap:wrap}
+.tog{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:12px;user-select:none;transition:all .15s}
+.tog.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+/* ── table ── */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:10px 14px;text-align:left;border-bottom:1px solid var(--border-light);font-weight:600}
+.tbl td{padding:10px 14px;border-bottom:1px solid var(--border-light);font-size:13px;vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:var(--surface2)}
+.mono{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.empty{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+/* ── process groups ── */
+.proc-grid{padding:14px;display:grid;grid-template-columns:1fr;gap:12px}
+.proc-group{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.proc-group-head{padding:10px 14px;display:flex;align-items:center;gap:8px;background:var(--surface2);font-size:12px;font-weight:700;border-bottom:1px solid var(--border-light);cursor:pointer;list-style:none}
+.proc-group-head::-webkit-details-marker{display:none}
+.proc-group table td:first-child,.proc-group table th:first-child{width:72px}
+.proc-group table td:nth-child(2),.proc-group table th:nth-child(2){width:72px}
+.proc-group table td:nth-child(3),.proc-group table th:nth-child(3){width:68px}
+.proc-group table td:first-child,.proc-group table td:nth-child(2),.proc-group table td:nth-child(3){white-space:nowrap}
+.proc-group table td:nth-child(4){width:auto}
+.proc-group table td:last-child,.proc-group table th:last-child{width:50px;text-align:right}
+.proc-command{min-width:0}
+.proc-command-main{font-size:12px;font-weight:600;margin-bottom:3px}
+.proc-command-sub{font-size:11px;color:var(--muted);font-family:var(--mono);white-space:normal;word-break:break-all}
+.mcp-group-body table td:first-child,.mcp-group-body table th:first-child{width:70px}
+.mcp-group-body table td:nth-child(2),.mcp-group-body table th:nth-child(2){width:72px}
+.mcp-group-body table td:nth-child(3),.mcp-group-body table th:nth-child(3){width:68px}
+.mcp-group-body table td:first-child,.mcp-group-body table td:nth-child(2),.mcp-group-body table td:nth-child(3){white-space:nowrap}
+.mcp-group-body table td:last-child,.mcp-group-body table th:last-child{width:54px;text-align:right}
+.proc-cwd-head{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--surface3);border-top:1px solid var(--border-light)}
+.proc-cwd-path{font-size:11px;font-family:var(--mono);color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ── agent cards ── */
+.agents-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;padding:14px}
+.agent-card{padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);transition:all .2s}
+.agent-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
+.agent-card-stats{display:flex;gap:12px;font-size:11px;font-weight:500;color:var(--muted);margin-bottom:8px}
+.agent-card-stats>span{display:flex;align-items:center;gap:4px}
+.agent-card-stats>span::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-soft)}
+.agent-card-stats>span:nth-child(1)::before{background:var(--accent)}
+.agent-card-stats>span:nth-child(2)::before{background:var(--yellow)}
+.agent-card-stats>span:nth-child(3)::before{background:var(--purple)}
+.agent-card-main{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.agent-card-name{font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
+.agent-card-actions{display:flex;gap:5px;flex-wrap:wrap}
+.agent-card-mcp{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-light)}
+.res-section{margin-bottom:10px}
+.res-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+.res-list{display:flex;flex-wrap:wrap;gap:4px}
+.res-tag{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;font-size:11px;border:1px solid var(--border-light);background:var(--surface)}
+.res-tag.skill-tag{align-items:flex-start;flex-direction:column;gap:2px;padding:6px 8px;border-radius:var(--radius-sm);background:var(--surface3);max-width:220px}
+.res-tag.skill-tag strong{font-size:11px;font-weight:700;line-height:1.25;color:var(--text)}
+.res-tag.skill-tag small{font-size:10px;line-height:1.2;color:var(--muted);font-family:var(--mono)}
+.res-tag.shared{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.res-path{font-size:11px;font-family:var(--mono);color:var(--muted);word-break:break-all;margin-top:4px}
+.path-list{display:flex;flex-direction:column;gap:6px}
+.path-row{display:grid;grid-template-columns:88px 1fr;gap:8px;font-size:11px}
+.path-row code{word-break:break-all;color:var(--text);font-family:var(--mono)}
+.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.metric-grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.metric-card{padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-sm)}
+.metric-card span{display:block;font-size:10.5px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:4px}
+.metric-card strong{font-size:16px;font-weight:700}
+.metric-card small{font-size:11px;color:var(--muted)}
+/* ── spinner ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+/* ── modal ── */
+#modal,#settings-modal,#prompt-modal,#mcp-proc-modal,#add-mcp-modal,#proc-modal,#tool-detail-modal,#agent-detail-modal,#sync-modal{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.4);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#modal.open,#settings-modal.open,#prompt-modal.open,#mcp-proc-modal.open,#add-mcp-modal.open,#proc-modal.open,#tool-detail-modal.open,#agent-detail-modal.open,#sync-modal.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);width:660px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-xl);animation:fadeScale .2s ease}
+@keyframes fadeScale{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+.modal-sm{width:420px}
+.modal-head{padding:14px 18px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px}
+.modal-title{font-size:15px;font-weight:700;flex:1}
+#modal-log{flex:1;overflow-y:auto;padding:12px 16px;font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--bg);white-space:pre-wrap;word-break:break-all}
+.log-err{color:var(--red)}.log-ok{color:var(--green)}
+.modal-foot{padding:12px 16px;border-top:1px solid var(--border-light);display:flex;justify-content:flex-end;gap:6px}
+/* ── settings modal ── */
+.sform{padding:18px;display:flex;flex-direction:column;gap:14px}
+.sform label{font-size:13px;font-weight:500;display:flex;flex-direction:column;gap:5px}
+.sform input,.sform select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13px;outline:none;width:100%;transition:border-color .15s}
+.sform input:focus,.sform select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.hint{font-size:11px;color:var(--muted);margin-top:2px}
+/* ── form-row ── */
+.form-row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:10px 14px;border-top:1px solid var(--border-light)}
+.form-row label{font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.form-row input,.form-row select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px;outline:none}
+.form-row input:focus{border-color:var(--accent)}
+.prompt-layout{padding:16px;display:grid;grid-template-columns:1fr;gap:14px;overflow:auto}
+.prompt-section{border:1px solid var(--border-light);border-radius:var(--radius);background:var(--surface2)}
+.prompt-head{padding:10px 12px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.prompt-body{padding:12px;display:flex;flex-direction:column;gap:10px}
+.prompt-body textarea{min-height:220px;width:100%;resize:vertical;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;color:var(--text);font:12px/1.6 var(--mono);outline:none;transition:border-color .15s}
+.prompt-body textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.prompt-body textarea[readonly]{background:var(--surface3);cursor:default}
+.prompt-path{font:11px/1.5 var(--mono);color:var(--muted);word-break:break-all}
+.mini-list{display:flex;flex-wrap:wrap;gap:4px}
+/* ── sync tab layout ── */
+.sync-tab-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
+@media(max-width:700px){.sync-tab-body{grid-template-columns:1fr}}
+.sync-group-card{border:1px solid var(--border-light);border-radius:var(--radius);padding:14px;background:var(--surface2)}
+.sync-group-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px}
+.sync-actions-card{border:1px solid var(--border-light);border-radius:var(--radius);padding:14px;background:var(--surface2);display:flex;flex-direction:column;gap:10px}
+.sync-service-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+/* ── table ── */
+.skill-tbl{width:100%;border-collapse:collapse}
+.skill-tbl th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:6px 10px;text-align:left;border-bottom:1px solid var(--border-light);background:var(--surface3)}
+.skill-tbl td{padding:6px 10px;border-bottom:1px solid var(--border-light);font-size:12px;vertical-align:top}
+.skill-tbl tr:last-child td{border-bottom:none}
+.skill-tbl tr:hover td{background:var(--surface2)}
+.skill-name{font-family:var(--mono);font-size:11px;word-break:break-all}
+.skill-desc{font-size:11px;color:var(--muted);max-width:260px}
+.helper-copy{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AI Config Sync</h1>
+  <div class="hdr-gap"></div>
+  <span class="hdr-info" id="last-refresh"></span>
+  <div id="daemon-wrap">
+    <span class="dot unknown" id="daemon-dot"></span>
+    <span id="daemon-label">守护…</span>
+    <button id="daemon-btn" class="btn sm" onclick="toggleDaemon()">…</button>
+    <button class="btn sm icon" onclick="restartDaemon()" title="重启守护">↺</button>
+  </div>
+  <button class="btn sm icon" onclick="openSettings()" title="设置">⚙</button>
+  <button class="btn sm icon" id="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+  <button class="btn sm" onclick="openProcModal()">进程 <span id="proc-count" class="subtle"></span></button>
+  <button class="btn primary sm" onclick="doSync()">↻ 同步</button>
+</header>
+
+<main>
+
+<!-- 工具状态 -->
+<div class="card">
+  <div class="card-head">
+    <span class="card-title">工具状态</span>
+    <div class="card-actions"><button class="btn sm" onclick="refreshStatus()">↻ 刷新</button></div>
+  </div>
+  <div class="tools-grid" id="tools-grid"><div class="empty"><div class="spin"></div></div></div>
+</div>
+
+<!-- MCP 服务器 -->
+<div class="card">
+  <div class="card-head">
+    <span class="card-title">MCP 服务器</span>
+    <div class="card-actions">
+      <span id="sync-svc-label" class="subtle"></span>
+      <button class="btn sm" onclick="openSyncModal()">同步配置</button>
+      <button class="btn primary sm" onclick="doSync()">↻ 同步</button>
+      <button class="btn sm" onclick="toggleAddMcp()">+ MCP</button>
+      <button class="btn sm" onclick="doMcpUpdateAll()">↑ 全部更新</button>
+      <button class="btn sm" onclick="killAllGlobalUnmapped()">清理未归属会话</button>
+    </div>
+  </div>
+  <div style="overflow-x:auto">
+    <table class="tbl">
+      <thead><tr><th>名称</th><th>当前版本</th><th>最新版本</th><th>模式</th><th></th></tr></thead>
+      <tbody id="mcp-tbody"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+    </table>
+  </div>
+  <div id="add-mcp-form" style="display:none"></div>
+</div>
+
+<!-- Agent 资源 -->
+<div class="card">
+  <div class="card-head">
+    <span class="card-title">Agent 资源</span>
+    <div class="card-actions"><button class="btn sm" onclick="refreshAgents()">↻</button></div>
+  </div>
+  <div class="agents-grid" id="agents-grid"><div class="empty"><div class="spin"></div></div></div>
+</div>
+
+</main>
+
+<!-- ── 进程弹窗 ── -->
+<div id="proc-modal">
+  <div class="modal-box" style="width:min(1020px,96vw);max-height:88vh">
+    <div class="modal-head">
+      <span class="modal-title">进程管理</span>
+      <span class="subtle">仅列运行时进程</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn sm" onclick="refreshProcesses()">↻</button>
+        <button class="btn danger sm" onclick="killAll()">全部终止</button>
+        <button class="btn sm" onclick="closeProcModal()">✕</button>
+      </div>
+    </div>
+    <div id="proc-container" style="overflow-y:auto;flex:1"><div class="empty">加载中…</div></div>
+  </div>
+</div>
+
+<!-- ── 工具详情弹窗 ── -->
+<div id="tool-detail-modal">
+  <div class="modal-box" style="width:min(680px,96vw);max-height:88vh">
+    <div class="modal-head">
+      <span class="modal-title" id="tool-detail-title">工具详情</span>
+      <button class="btn sm" onclick="closeToolModal()">✕</button>
+    </div>
+    <div id="tool-detail-body" style="overflow-y:auto;flex:1;padding:16px"></div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeToolModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── 同步配置弹窗 ── -->
+<div id="sync-modal">
+  <div class="modal-box" style="width:min(520px,96vw)">
+    <div class="modal-head">
+      <span class="modal-title">同步配置</span>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+        <span class="dot unknown" id="sync-status-dot"></span>
+        <span id="sync-svc-label2" class="subtle">…</span>
+        <button id="sync-svc-btn" class="btn sm" onclick="toggleSyncService()">…</button>
+      </div>
+      <button class="btn sm" onclick="closeSyncModal()">✕</button>
+    </div>
+    <div class="sform" style="gap:14px">
+      <div>
+        <div class="sync-group-title" style="margin-bottom:8px">同步内容</div>
+        <div class="tog-wrap">
+          <label class="tog on"><input type="checkbox" value="mcp" checked>MCP</label>
+          <label class="tog on"><input type="checkbox" value="skills" checked>Skills</label>
+          <label class="tog on"><input type="checkbox" value="docs" checked>文档</label>
+          <label class="tog on"><input type="checkbox" value="prompt" checked>提示词</label>
+        </div>
+      </div>
+      <div>
+        <div class="sync-group-title" style="margin-bottom:8px">同步目标</div>
+        <div class="tog-wrap">
+          <label class="tog on"><input type="checkbox" value="codex" checked>Codex</label>
+          <label class="tog on"><input type="checkbox" value="claude" checked>Claude</label>
+          <label class="tog on"><input type="checkbox" value="opencode" checked>OpenCode</label>
+          <label class="tog on"><input type="checkbox" value="pi" checked>Pi</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn sm" onclick="closeSyncModal()">关闭</button>
+      <button class="btn" onclick="doMcpUpdateAll()">↑ 更新所有 MCP</button>
+      <button class="btn primary" onclick="doSync();closeSyncModal()">↻ 立即同步</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Agent 详情弹窗 ── -->
+<div id="agent-detail-modal">
+  <div class="modal-box" style="width:min(860px,96vw);max-height:88vh">
+    <div class="modal-head">
+      <span class="modal-title" id="agent-detail-title">Skills</span>
+      <button class="btn sm" onclick="closeAgentModal()">✕</button>
+    </div>
+    <div id="agent-detail-body" style="overflow-y:auto;flex:1;padding:16px"></div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeAgentModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── 操作日志弹窗 ── -->
+<div id="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="modal-title" id="modal-title">执行中…</span>
+      <span id="modal-status"><div class="spin"></div></span>
+      <button class="btn sm" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-log"></div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── 设置弹窗 ── -->
+<div id="settings-modal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <span class="modal-title">⚙ 设置</span>
+      <button class="btn sm" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="sform">
+      <label>
+        sudo 密码（用于需要提权的升级操作）
+        <input type="password" id="sudo-pw-input" placeholder="留空则不修改">
+        <span class="hint" id="sudo-pw-hint">加载中…</span>
+      </label>
+      <div style="display:flex;gap:6px">
+        <button class="btn primary sm" onclick="saveSudoPw(this)">保存密码</button>
+        <button class="btn danger sm" onclick="clearSudoPw()">清除密码</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border-light)">
+      <hr style="border:none;border-top:1px solid var(--border-light)">
+      <label>
+        Web 访问地址（留空用默认，填服务器 IP 方便客户机访问）
+        <input id="web-host-input" placeholder="例如 192.168.1.100">
+        <span class="hint" id="web-host-hint">默认 127.0.0.1，仅 Linux 服务器需要配置</span>
+      </label>
+      <div style="display:flex;gap:6px">
+        <button class="btn primary sm" onclick="saveWebHost()">保存地址</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border-light)">
+      <label>
+        主题
+        <select id="theme-select" onchange="applyTheme(this.value)">
+          <option value="light">亮色</option>
+          <option value="dark">暗色</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeSettings()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── Prompt 弹窗 ── -->
+<div id="prompt-modal">
+  <div class="modal-box" style="width:min(1100px,96vw);max-height:88vh">
+    <div class="modal-head">
+      <span class="modal-title" id="prompt-modal-title">提示词</span>
+      <button class="btn sm" onclick="closePromptModal()">✕</button>
+    </div>
+    <div class="prompt-layout" id="prompt-modal-body"><div class="empty"><div class="spin"></div></div></div>
+    <div class="modal-foot"><button class="btn sm" onclick="closePromptModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── MCP 进程弹窗 ── -->
+<div id="mcp-proc-modal">
+  <div class="modal-box" style="width:min(1180px,96vw);max-height:88vh">
+    <div class="modal-head">
+      <span class="modal-title" id="mcp-proc-title">MCP 进程</span>
+      <button class="btn sm" onclick="closeMcpProcessModal()">✕</button>
+    </div>
+    <div class="prompt-layout" id="mcp-proc-body"><div class="empty"><div class="spin"></div></div></div>
+    <div class="modal-foot"><button class="btn sm" onclick="closeMcpProcessModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- ── 添加 MCP 弹窗 ── -->
+<div id="add-mcp-modal">
+  <div class="modal-box modal-sm">
+    <div class="modal-head">
+      <span class="modal-title">+ 添加 MCP 服务器</span>
+      <button class="btn sm" onclick="closeAddMcpModal()">✕</button>
+    </div>
+    <div class="sform">
+      <label>名称<input id="mcp-name" placeholder="my-server"></label>
+      <label>协议<select id="mcp-transport"><option>stdio</option><option>http</option><option>sse</option></select></label>
+      <label>命令<input id="mcp-cmd" placeholder="/path/to/cmd or npm package"></label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn sm" onclick="closeAddMcpModal()">取消</button>
+      <button class="btn primary sm" onclick="addMcp()">添加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLORS={codex:'#3fb950',claude:'#58a6ff',opencode:'#f78166',pi:'#a371f7',paseo:'#c27aff'};
+let _latestMcpData=[];
+
+function esc(v){
+  return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;");
+}
+function statusText(status){
+  if(status==='active')return'运行中';
+  if(status==='inactive')return'未运行';
+  if(status==='enabled')return'已启用';
+  if(status==='disabled')return'未启用';
+  if(status==='n/a')return'不适用';
+  return status||'未知';
+}
+function badgeClass(status){
+  if(['green','red','yellow','blue','muted'].includes(status))return status;
+  if(status==='active'||status==='enabled')return'green';
+  if(status==='inactive'||status==='disabled')return'red';
+  return'muted';
+}
+function detailRow(label,value){
+  if(value===null||value===undefined||value==='')return'';
+  return `<div class="detail-grid"><div class="detail-label">${esc(label)}</div><div class="detail-value">${esc(value)}</div></div>`;
+}
+function pathRow(label,value){
+  if(!value)return'';
+  return `<div class="path-row"><span>${esc(label)}</span><code>${esc(value)}</code></div>`;
+}
+function skillBadge(entry){
+  const parts=[entry.zh_label, entry.name, entry.description, entry.path, entry.group].filter(Boolean);
+  const title=parts.join('\n');
+  const label=entry.zh_label||entry.name||'未命名';
+  const showName=entry.name&&entry.name!==label;
+  return `<span class="res-tag skill-tag" title="${esc(title)}"><strong>${esc(label)}</strong>${showName?`<small>${esc(entry.name)}</small>`:''}</span>`;
+}
+function renderSkillBadges(entries, emptyText='无'){
+  if(!entries||!entries.length)return`<span class="subtle">${esc(emptyText)}</span>`;
+  return entries.map(skillBadge).join('');
+}
+function openUrl(url){
+  if(url)window.open(url,'_blank','noopener');
+}
+function renderOpenButton(url,label='打开 Web'){
+  return url?`<button class="btn sm" onclick='openUrl(${JSON.stringify(url)})'>${esc(label)}</button>`:'';
+}
+function renderPackageTags(entries, emptyText='无'){
+  if(!entries||!entries.length)return`<span class="subtle">${esc(emptyText)}</span>`;
+  return entries.map(pkg=>{
+    const version=pkg.installed_version||pkg.declared_version||'未装';
+    const title=[pkg.name, pkg.spec, pkg.installed_version&&`installed: ${pkg.installed_version}`, pkg.declared_version&&`declared: ${pkg.declared_version}`].filter(Boolean).join('\n');
+    return `<span class="res-tag pkg-tag" title="${esc(title)}"><strong>${esc(pkg.name)}</strong><small>${esc(version)}</small></span>`;
+  }).join('');
+}
+function formatDateTime(ts){
+  if(!ts)return '未知';
+  try{return new Date(Number(ts)*1000).toLocaleString()}catch(_e){return '未知'}
+}
+function renderPiPackageTable(entries){
+  if(!entries||!entries.length)return '<div class="empty">暂无受管组件</div>';
+  return `<div class="pkg-table-wrap"><table class="tbl">
+    <thead><tr><th>组件</th><th>当前版本</th><th>最新版本</th><th>状态</th><th></th></tr></thead>
+    <tbody>${entries.map(pkg=>{
+      const current=pkg.installed_version||pkg.declared_version||'未安装';
+      const latest=pkg.latest_version||'未知';
+      const status=pkg.installed?(pkg.has_update?'可升级':'已同步'):'未安装';
+      const tone=!pkg.installed?'red':pkg.has_update?'yellow':'green';
+      const actionLabel=!pkg.installed?'安装':pkg.has_update?'升级':'重装';
+      return `<tr>
+        <td class="pkg-cell-name"><strong>${esc(pkg.name)}</strong><small>${esc(pkg.spec)}</small></td>
+        <td><span class="mono">${esc(current)}</span></td>
+        <td>${pkg.latest_version?`<span class="badge ${pkg.has_update?'yellow':'green'}">${esc(latest)}</span>`:`<span class="badge muted">未知</span>`}</td>
+        <td><span class="badge ${tone}">${esc(status)}</span></td>
+        <td><div class="pkg-actions"><button class="btn sm" onclick='runPiPackageUpgrade(${JSON.stringify(pkg.spec)})'>${esc(actionLabel)}</button></div></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+function summarizeKindCounts(counts){
+  if(!counts)return'';
+  return Object.entries(counts).map(([kind,count])=>`${kind} ${count}`).join(' · ');
+}
+function formatBytes(bytes){
+  const value=Number(bytes||0);
+  if(!Number.isFinite(value)||value<=0)return'0 B';
+  const units=['B','KB','MB','GB','TB'];
+  let size=value,unit=0;
+  while(size>=1024&&unit<units.length-1){size/=1024;unit++;}
+  const digits=size>=100||unit===0?0:size>=10?1:2;
+  return `${size.toFixed(digits)} ${units[unit]}`;
+}
+function getMemoryTier(bytes){
+  const value=Number(bytes||0);
+  if(value>=536870912)return 'hot';
+  if(value>=268435456)return 'warn';
+  return '';
+}
+function getMemoryRowClass(bytes){
+  const tier=getMemoryTier(bytes);
+  if(tier==='hot')return 'mem-hot';
+  if(tier==='warn')return 'mem-warn';
+  return '';
+}
+function sortByMemoryDesc(items){
+  return [...(items||[])].sort((a,b)=>Number(b?.rss_bytes||b?.process_rss_bytes||0)-Number(a?.rss_bytes||a?.process_rss_bytes||0));
+}
+function renderPiWebPanel(web){
+  if(!web||(!web.launcher_exists&&!web.service_name))return'';
+  const current=web.version||'未安装';
+  const latest=web.latest_version||'未知';
+  const btns=[];
+  btns.push(renderOpenButton(web.url,'打开 Pi Web'));
+  if(web.has_update)btns.push(`<button class="btn sm" style="border-color:var(--yellow);color:var(--yellow)" onclick="runJob('pi_web_update')">⬆ ${esc(latest)}</button>`);
+  else btns.push(`<button class="btn sm" onclick="runJob('pi_web_update')">${web.launcher_exists?'重装 Web':'安装 Web'}</button>`);
+  if(web.service_active==='active')btns.push(`<button class="btn sm danger" onclick="runJob('pi_web_service_stop')">停止 Web 服务</button>`);
+  else btns.push(`<button class="btn sm" onclick="runJob('pi_web_service_start')">启动 Web 服务</button>`);
+  return `<div class="tool-subpanel">
+    <div class="tool-subhead">
+      <div>
+        <div class="tool-subtitle">Pi Web</div>
+        <div class="tool-submeta">${esc(web.url||'服务未启动')} ${web.port?`· 端口 ${esc(web.port)}`:''}</div>
+      </div>
+      <div class="tool-btns">${btns.filter(Boolean).join('')}</div>
+    </div>
+    <div class="tool-subgrid">
+      <div class="kv-card"><span>当前版本</span><strong>${esc(current)}</strong></div>
+      <div class="kv-card"><span>最新版本</span><strong>${esc(latest)}</strong></div>
+      <div class="kv-card"><span>服务状态</span><strong>${esc(statusText(web.service_active||'inactive'))}</strong></div>
+    </div>
+    <div class="path-list">
+      ${pathRow('Web 地址', web.url||'')}
+      ${pathRow('端口', web.port||'')}
+      ${pathRow('主机', web.hostname||'')}
+      ${pathRow('启动器', web.launcher_path||'')}
+      ${pathRow('服务单元', web.service_path||'')}
+    </div>
+  </div>`;
+}
+function renderPiPackagesPanel(packages){
+  if(!packages||!packages.managed_entries||!packages.managed_entries.length)return'';
+  return `<div class="tool-subpanel">
+    <div class="tool-subhead">
+      <div>
+        <div class="tool-subtitle">Pi 自定义组件</div>
+        <div class="tool-submeta">受管组件 ${esc(packages.managed_entries.length)} 个</div>
+      </div>
+      <div class="tool-btns"><button class="btn sm" onclick="runJob('pi_packages_upgrade')">全量升级</button></div>
+    </div>
+    ${renderPiPackageTable(packages.managed_entries)}
+    <div class="path-list">
+      ${pathRow('Package JSON', packages.package_json_path||'')}
+      ${pathRow('NPM 目录', packages.npm_dir||'')}
+    </div>
+  </div>`;
+}
+
+// ── 主题 ─────────────────────────────────────────────────────────────────────
+function applyTheme(t){
+  document.documentElement.classList.toggle('dark',t==='dark');
+  document.getElementById('theme-btn').textContent=t==='dark'?'☀':'🌙';
+  const sel=document.getElementById('theme-select');
+  if(sel)sel.value=t;
+  localStorage.setItem('theme',t);
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})}).catch(()=>{});
+}
+function toggleTheme(){applyTheme(document.documentElement.classList.contains('dark')?'light':'dark')}
+
+// ── 状态刷新 ─────────────────────────────────────────────────────────────────
+async function refreshStatus(){
+  try{
+    const{tools,sync_service}=await fetch('/api/status').then(r=>r.json());
+    renderTools(tools);renderSyncService(sync_service);
+    document.getElementById('last-refresh').textContent='刷新于 '+new Date().toLocaleTimeString();
+  }catch(e){console.error(e)}
+}
+
+let _latestToolData=[];
+function renderTools(tools){
+  _latestToolData=tools;
+  const preferredOrder=['paseo','codex','claude','opencode','pi'];
+  const ordered=[...tools].sort((a,b)=>{
+    const ai=preferredOrder.indexOf(a.key),bi=preferredOrder.indexOf(b.key);
+    return (ai===-1?999:ai)-(bi===-1?999:bi);
+  });
+  document.getElementById('tools-grid').innerHTML=ordered.map(t=>{
+    const c=COLORS[t.key]||'#58a6ff';
+    const runtime=t.status??t.service??'n/a';
+    const rDot=runtime==='active'?'active':runtime==='inactive'?'inactive':'unknown';
+    const sDot=t.service_status==='active'?'active':t.service_status==='inactive'?'inactive':'unknown';
+    const rPill=`<span class="status-pill"><span class="dot ${rDot}"></span>运行</span>`;
+    const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>Web</span>`:'';
+    const current=t.installed||'未安装';
+    const verInfo=current==='未安装'
+      ?`<span class="subtle" style="font-size:12px">未安装</span>`
+      :t.has_update
+        ?`<span class="mono" style="font-size:12px">${esc(current)}</span> <span style="color:var(--yellow);font-size:12px">→ ${esc(t.latest)}</span>`
+        :`<span class="mono" style="font-size:12px">${esc(current)}</span> <span class="badge green" style="font-size:10px">最新</span>`;
+    const btns=[];
+    if(t.web_url&&(t.service_status==='active'||runtime==='active'))btns.push(renderOpenButton(t.web_url,'打开'));
+    if(!t.installed)btns.push(`<button class="btn primary sm" onclick="install('${t.key}')">安装</button>`);
+    if(t.has_update)btns.push(`<button class="btn sm" style="border-color:var(--yellow);color:var(--yellow)" onclick="upgrade('${t.key}','${t.latest}')">⬆ ${esc(t.latest)}</button>`);
+    btns.push(`<button class="btn sm" onclick="openToolModal('${t.key}')">详情</button>`);
+    return`<div class="tool-card" style="--tc:${c}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <div style="font-size:15px;font-weight:700;flex:1">${esc(t.label)}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${rPill}${sPill}</div>
+      </div>
+      <div style="margin-bottom:10px;font-size:12px">${verInfo}</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">${btns.join('')}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderSyncService(svc){
+  const lbl=document.getElementById('sync-svc-label');
+  const lbl2=document.getElementById('sync-svc-label2');
+  const dot2=document.getElementById('sync-status-dot');
+  const btn=document.getElementById('sync-svc-btn');
+  if(!svc||svc.error){if(lbl)lbl.textContent='同步服务: 未知';return}
+  const on=svc.active==='active';
+  const html=`<span class="dot ${on?'active':'inactive'}" style="margin-right:4px"></span>${on?'同步服务运行中':'同步服务已停止'}`;
+  if(lbl)lbl.innerHTML=html;
+  if(lbl2)lbl2.textContent=on?'同步服务运行中':'同步服务已停止';
+  if(dot2)dot2.className='dot '+(on?'active':'inactive');
+  btn.textContent=on?'停止':'启动';
+  btn._on=on;
+}
+function toggleSyncService(){const b=document.getElementById('sync-svc-btn');runJob(b._on?'sync_service_stop':'sync_service_start')}
+
+// ── 安装/升级（可能需要 sudo 密码） ──────────────────────────────────────────
+async function install(tool){await _runWithSudo('install',tool)}
+async function upgrade(tool,ver){await _runWithSudo('update',tool,ver)}
+
+async function _runWithSudo(action,tool,version){
+  const s=await fetch('/api/settings').then(r=>r.json());
+  if(s.has_sudo_password){
+    runJob(action,tool,null,version);
+  } else {
+    const pw=prompt(`"${tool}" 升级可能需要 sudo 权限。\n请输入 sudo 密码（留空则跳过）：`);
+    runJob(action,tool,pw||null,version);
+  }
+}
+
+// ── MCP ──────────────────────────────────────────────────────────────────────
+async function refreshMcp(){
+  const data=await fetch('/api/mcp').then(r=>r.json());
+  _latestMcpData=data;
+  const tb=document.getElementById('mcp-tbody');
+  const visible=sortByMemoryDesc(data);
+  if(!visible.length){tb.innerHTML='<tr><td colspan="5" class="empty">当前筛选下暂无 MCP 服务器</td></tr>';return}
+  tb.innerHTML=visible.map(s=>{
+    const direct=s.direct_tools===true?'直连工具':Array.isArray(s.direct_tools)?'选择性直连':'代理';
+    const current=s.current_version||'未知';
+    const latest=s.latest_version||'未知';
+    const detail=[
+      detailRow('Wrapper', s.wrapper_path),
+      detailRow('安装目录', s.install_root),
+      detailRow('版本主体', s.name==='serena'?'serena-agent（serena-manager 仅作本地启动管理）':'运行组件'),
+      detailRow('Manager', s.manager_label),
+      detailRow('管理目录', s.manager_root),
+      detailRow('命令', [s.command,...(s.args||[])].filter(Boolean).join(' ')),
+      detailRow('URL', s.url),
+      detailRow('工作目录', s.cwd),
+      detailRow('升级脚本', s.update_script),
+    ].join('');
+    const updateBtn=s.managed?`<button class="btn sm" onclick="runMcpUpdate('${s.name}')">${s.has_update?'升级':'重装'}</button>`:'';
+    return`<tr class="${getMemoryRowClass(s.rss_bytes)}">
+      <td>
+        <div class="stack-title"><strong>${esc(s.name)}</strong><small>${esc(s.package_name||s.component_label||'custom')}</small></div>
+        ${detail?`<details class="detail-box compact"><summary>查看安装位置与命令详情</summary>${detail}</details>`:''}
+      </td>
+      <td><span class="mono">${esc(current)}</span></td>
+      <td>${s.latest_version?`<span class="badge ${s.has_update?'yellow':'green'}">${esc(latest)}</span>`:`<span class="badge muted">未知</span>`}</td>
+      <td><div class="stack-title"><strong>${esc(s.type||'stdio')}</strong><small>${esc(direct)}${s.process_count?` · ${s.process_count} 进程 · ${formatBytes(s.rss_bytes)}`:''}</small></div></td>
+      <td><div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">${s.process_count?`<button class="btn sm" onclick="openMcpProcessModal('${s.name}')">进程</button>`:''}${updateBtn}<button class="btn danger sm" onclick="removeMcp('${s.name}')">移除</button></div></td>
+    </tr>`;
+  }).join('');
+}
+function toggleAddMcp(){document.getElementById('add-mcp-modal').classList.add('open')}
+function closeAddMcpModal(){document.getElementById('add-mcp-modal').classList.remove('open')}
+async function addMcp(){
+  const name=document.getElementById('mcp-name').value.trim();
+  if(!name)return;
+  const res=await fetch('/api/mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,transport:document.getElementById('mcp-transport').value,command:document.getElementById('mcp-cmd').value.trim()||null})}).then(r=>r.json());
+  closeAddMcpModal();openJobModal(res.id,res.label,()=>refreshMcp());
+}
+async function removeMcp(name){
+  if(!confirm(`确认移除 MCP 服务器 "${name}"？`))return;
+  const res=await fetch('/api/mcp/'+name,{method:'DELETE'}).then(r=>r.json());
+  openJobModal(res.id,res.label,()=>refreshMcp());
+}
+
+// ── 进程（分组） ─────────────────────────────────────────────────────────────
+const KIND_LABELS={runtime:'运行时',server:'服务端',daemon:'守护进程',session:'会话',interactive:'交互','app-server':'应用服务','managed-service':'托管服务','daemon-launcher':'守护启动器',supervisor:'监控进程','terminal-worker':'终端工作进程','daemon-worker':'守护工作进程',manager:'管理器',agent:'代理'};
+function inferProjectPath(tool,p){
+  if(tool==='paseo')return '';
+  const candidates=[p.project_root,p.cwd,...(p.descendant_cwds||[]),...(p.ancestor_cwds||[])].filter(Boolean);
+  const projectCandidates=[...new Set(candidates.filter(v=>typeof v==='string'&&v.includes('/projects/')))];
+  if(!projectCandidates.length)return '';
+  return projectCandidates.sort((a,b)=>a.length-b.length)[0];
+}
+function _procRows(procs,tool){
+  return procs.map(p=>`<tr class="${getMemoryRowClass(p.rss_bytes)}">
+    <td><span class="mono">${esc(p.pid)}</span></td>
+    <td><span class="badge muted">${esc(KIND_LABELS[p.kind]||p.kind||'未知')}</span></td>
+    <td><span class="badge ${badgeClass(p.state_tone||'muted')}">${esc(p.state_label||p.status)}</span></td>
+    <td><div class="proc-command"><div class="proc-command-main">${esc(p.name||tool)}</div><div class="proc-command-sub">${esc(p.cmd)}</div><div class="proc-command-sub">内存 <span class="badge ${getMemoryTier(p.rss_bytes)==='hot'?'red':getMemoryTier(p.rss_bytes)==='warn'?'yellow':'muted'}">${esc(formatBytes(p.rss_bytes))}</span></div></div></td>
+    <td><button class="btn danger sm" onclick="killPid(${p.pid})">终止</button></td>
+  </tr>`).join('');
+}
+function renderPaseoProcessSections(ps){
+  const primary=ps.filter(p=>p.primary||p.cluster==='primary');
+  const residual=ps.filter(p=>p.residual||p.cluster==='residual');
+  const tblHead=`<thead><tr><th>进程 ID</th><th>类型</th><th>状态</th><th>命令</th><th></th></tr></thead>`;
+  const sections=[];
+  if(primary.length){
+    sections.push(`<div class="mcp-group">
+      <div class="mcp-group-head">
+        <div class="mcp-group-title">
+          <strong>当前守护主链</strong>
+          <small>当前监听与附属工作进程</small>
+          <div class="mcp-group-meta">
+            <span class="badge blue">进程 ${primary.length}</span>
+            <span class="badge muted">内存 ${esc(formatBytes(primary.reduce((sum,p)=>sum+Number(p.rss_bytes||0),0)))}</span>
+            ${summarizeKindCounts(_countKinds(primary))?`<span class="badge muted">${esc(summarizeKindCounts(_countKinds(primary)))}</span>`:''}
+          </div>
+        </div>
+      </div>
+      <div class="mcp-group-body"><table class="tbl">${tblHead}<tbody>${_procRows(primary,'paseo')}</tbody></table></div>
+    </div>`);
+  }
+  if(residual.length){
+    const residualPids=residual.map(p=>p.pid);
+    sections.push(`<div class="mcp-group">
+      <div class="mcp-group-head">
+        <div class="mcp-group-title">
+          <strong>残留 / 辅助进程</strong>
+          <small>不属于当前守护主链，可按需手动清理</small>
+          <div class="mcp-group-meta">
+            <span class="badge yellow">进程 ${residual.length}</span>
+            <span class="badge muted">内存 ${esc(formatBytes(residual.reduce((sum,p)=>sum+Number(p.rss_bytes||0),0)))}</span>
+            ${summarizeKindCounts(_countKinds(residual))?`<span class="badge muted">${esc(summarizeKindCounts(_countKinds(residual)))}</span>`:''}
+          </div>
+        </div>
+        <div class="tool-btns"><button class="btn danger sm" onclick='killPaseoResidual(${JSON.stringify(residualPids)})'>清理残留</button></div>
+      </div>
+      <div class="mcp-group-body"><table class="tbl">${tblHead}<tbody>${_procRows(residual,'paseo')}</tbody></table></div>
+    </div>`);
+  }
+  if(!sections.length){
+    return '<div class="empty">当前没有 Paseo 运行时进程</div>';
+  }
+  return `<div class="mcp-group-list" style="padding:8px">${sections.join('')}</div>`;
+}
+function _countKinds(procs){
+  const counts={};
+  (procs||[]).forEach(p=>{
+    const kind=p.kind||'unknown';
+    counts[kind]=(counts[kind]||0)+1;
+  });
+  return counts;
+}
+async function refreshProcesses(){
+  const procs=await fetch('/api/processes').then(r=>r.json());
+  window._latestProcessData=procs;
+  const el=document.getElementById('proc-container');
+  const badge=document.getElementById('proc-count');
+  const expandedTools=[...el.querySelectorAll('details.proc-group[data-tool]')].filter(node=>node.open).map(node=>node.dataset.tool);
+  const visible=sortByMemoryDesc(procs);
+  if(badge)badge.textContent=visible.length?`(${visible.length})`:'';
+  if(!visible.length){el.innerHTML='<div class="empty">当前没有工具进程</div>';return}
+  const groups={};
+  visible.forEach(p=>{(groups[p.tool]=groups[p.tool]||[]).push(p)});
+  el.innerHTML=`<div class="proc-grid">${Object.entries(groups).map(([tool,ps])=>{
+    const c=COLORS[tool]||'#8b949e';
+    const gCount={},gTone={};
+    ps.forEach(p=>{const l=p.state_label||'未知';gCount[l]=(gCount[l]||0)+1;if(!gTone[l])gTone[l]=badgeClass(p.state_tone)});
+    const gStats=[`<span class="badge blue">内存 ${esc(formatBytes(ps.reduce((sum,p)=>sum+Number(p.rss_bytes||0),0)))}</span>`, ...Object.entries(gCount).map(([k,v])=>`<span class="badge ${gTone[k]}">${esc(k)} ${v}</span>`)].join('');
+    const cwdMap={};
+    ps.forEach(p=>{
+      const inferredProject=inferProjectPath(tool,p);
+      const k=inferredProject||'';
+      (cwdMap[k]=cwdMap[k]||[]).push(p)
+    });
+    const cwdEntries=Object.entries(cwdMap).sort((a,b)=>b[1].reduce((sum,p)=>sum+Number(p.rss_bytes||0),0)-a[1].reduce((sum,p)=>sum+Number(p.rss_bytes||0),0));
+    const tblHead=`<thead><tr><th>进程 ID</th><th>类型</th><th>状态</th><th>命令</th><th></th></tr></thead>`;
+    const hasCwd=cwdEntries.some(([cwd])=>cwd!=='');
+    let innerHtml;
+    if(tool==='paseo'){
+      innerHtml=renderPaseoProcessSections(ps);
+    }else if(!hasCwd){
+      innerHtml=`<table class="tbl">${tblHead}<tbody>${_procRows(ps,tool)}</tbody></table>`;
+    }else{
+      const cards=cwdEntries.map(([cwd,cps])=>{
+        const base=cwd?cwd.split('/').filter(Boolean).pop()||cwd:'其他';
+        const pids=cps.map(p=>p.pid);
+        return`<div class="mcp-group">
+          <div class="mcp-group-head">
+            <div class="mcp-group-title">
+              <strong>${esc(base)}</strong>
+              ${cwd?`<small>${esc(cwd)}</small>`:''}
+              <div class="mcp-group-meta"><span class="badge blue">进程 ${cps.length}</span><span class="badge muted">内存 ${esc(formatBytes(cps.reduce((sum,p)=>sum+Number(p.rss_bytes||0),0)))}</span></div>
+            </div>
+            <div class="tool-btns"><button class="btn danger sm" onclick='killPids(${JSON.stringify(pids)})'>终止该项目</button></div>
+          </div>
+          <div class="mcp-group-body"><table class="tbl">${tblHead}<tbody>${_procRows(cps,tool)}</tbody></table></div>
+        </div>`;
+      }).join('');
+      innerHtml=`<div class="mcp-group-list" style="padding:8px">${cards}</div>`;
+    }
+    const isOpen=expandedTools.includes(tool);
+    return`<details class="proc-group" data-tool="${esc(tool)}" ${isOpen?'open':''}>
+      <summary class="proc-group-head"><span class="dot active" style="background:${c}"></span><strong style="color:${c}">${esc(tool)}</strong>${gStats}<span class="subtle" style="margin-left:4px;flex-shrink:0">空转可安全终止</span><div style="margin-left:auto;display:flex;gap:5px;flex-shrink:0"><button class="btn sm danger" onclick="killTool('${tool}')">终止全部</button></div></summary>
+      ${innerHtml}
+    </details>`;
+  }).join('')}</div>`;
+}
+async function killPid(pid){
+  try{
+    const result=await killApiRequest({pids:[pid]});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  refreshProcesses();
+}
+async function killPids(pids){
+  if(!pids||!pids.length)return;
+  try{
+    const result=await killApiRequest({pids});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  refreshProcesses();
+}
+async function killTool(tool){
+  if(!confirm(`终止所有 ${tool} 进程？`))return;
+  try{
+    const result=await killApiRequest({tool});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  refreshProcesses();
+}
+async function killPaseoResidual(pids){
+  if(!pids||!pids.length){
+    alert('当前没有可清理的 Paseo 残留进程');
+    return;
+  }
+  if(!confirm(`确认清理 ${pids.length} 个 Paseo 残留/辅助进程？`))return;
+  try{
+    const result=await killApiRequest({pids});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  refreshProcesses();
+}
+async function killAll(){
+  if(!confirm('终止所有工具进程？'))return;
+  try{
+    const result=await killApiRequest({all:true});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  refreshProcesses();
+}
+async function killAllGlobalUnmapped(){
+  const allPids=[...new Set((_latestMcpData||[]).flatMap(item=>collectUnmappedMcpGroupPids(item.process_groups||[])))];
+  if(!allPids.length){alert('当前没有未归属 MCP 会话进程');return}
+  if(!confirm(`确认清理所有 MCP 服务器的未归属会话进程（${allPids.length} 个）？`))return;
+  try{
+    const result=await killApiRequest({pids:allPids});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  await Promise.all([refreshProcesses(),refreshMcp()]);
+}
+async function killApiRequest(payload){
+  const res=await fetch('/api/processes/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  let result={};
+  try{
+    const text=await res.text();
+    result=text?JSON.parse(text):{};
+  }catch(_err){
+    if(!res.ok)throw new Error(`终止请求失败（HTTP ${res.status}）`);
+    console.warn('Kill API returned non-JSON success response', payload, res.status);
+    result={};
+  }
+  if(!res.ok)throw new Error(result?.detail||`终止请求失败（HTTP ${res.status}）`);
+  return result;
+}
+function showKillErrors(result){
+  const errors=(result&&result.errors)||[];
+  // Intentionally surface partial failures so residual processes are visible to the user.
+  if(errors.length)alert(errors.join('\n'));
+}
+function getMcpProcessGroups(name){
+  return (_latestMcpData||[]).find(item=>item.name===name)?.process_groups||[];
+}
+async function killMcpProcess(name,pid){
+  try{
+    const result=await killApiRequest({pids:[pid]});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  await Promise.all([refreshProcesses(),refreshMcp()]);
+  openMcpProcessModal(name);
+}
+async function killMcpGroup(name,label,pids){
+  if(!pids||!pids.length)return;
+  if(!confirm(`确认关闭 ${label} 下的相关进程？`))return;
+  try{
+    const result=await killApiRequest({pids});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  await Promise.all([refreshProcesses(),refreshMcp()]);
+  openMcpProcessModal(name);
+}
+function collectUnmappedMcpGroupPids(groups){
+  return [...new Set((groups||[])
+    .filter(group=>group.unmapped)
+    .flatMap(group=>group.pids||[])
+    .map(pid=>Number(pid))
+    .filter(pid=>Number.isInteger(pid)&&pid>0))];
+}
+async function killUnmappedMcpGroups(name,pids){
+  const targetPids=(pids&&pids.length)?pids:collectUnmappedMcpGroupPids(getMcpProcessGroups(name));
+  if(!targetPids.length){
+    alert('当前没有未归属会话进程');
+    return;
+  }
+  if(!confirm(`确认清理 ${name} 的所有未归属会话进程？`))return;
+  try{
+    const result=await killApiRequest({pids:targetPids});
+    showKillErrors(result);
+  }catch(err){
+    alert(err?.message||'终止失败');
+  }
+  await Promise.all([refreshProcesses(),refreshMcp()]);
+  openMcpProcessModal(name);
+}
+
+// ── Agent 资源详情 ────────────────────────────────────────────────────────────
+function renderSkillTable(entries){
+  if(!entries||!entries.length)return'<div style="padding:6px 10px;font-size:12px;color:var(--muted)">无</div>';
+  return`<div style="overflow-x:auto"><table class="skill-tbl">
+    <thead><tr><th>名称</th><th>中文释义</th><th>描述</th></tr></thead>
+    <tbody>${entries.map(e=>`<tr>
+      <td><span class="skill-name">${esc(e.name||'')}</span></td>
+      <td>${esc(e.zh_label||e.name||'')}</td>
+      <td class="skill-desc">${esc(e.description||'')}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+async function refreshAgents(){
+  const data=await fetch('/api/agents').then(r=>r.json());
+  const el=document.getElementById('agents-grid');
+  if(!data.length||data[0].error){el.innerHTML=`<div class="empty">${data[0]?.error||'无数据'}</div>`;return}
+  _latestAgentData=data;
+  el.innerHTML=data.map(a=>{
+    const c=COLORS[a.key]||'#58a6ff';
+    const mcps=a.mcp_servers.map(m=>`<span class="res-tag ${m.shared?'shared':''}" title="${esc(m.transport)}">${esc(m.name)}</span>`).join('');
+    return`<div class="agent-card" style="--ac:${c}">
+      <div class="agent-card-stats"><span>共享 ${esc(a.shared_skills.length)}</span><span>专属 ${esc(a.target_specific_skills.length)}</span><span>内置 ${esc((a.builtin_skill_entries||[]).length)}</span></div>
+      <div class="agent-card-main">
+        <div class="agent-card-name"><span style="color:${c}">●</span>${esc(a.label)}</div>
+        <div class="agent-card-actions">
+          <button class="btn sm" onclick="openPromptModal('${a.key}')">提示词</button>
+          <button class="btn sm" onclick='openAgentModal(${JSON.stringify(a.key)},"skills")'>Skills</button>
+          <button class="btn sm" onclick='openAgentModal(${JSON.stringify(a.key)},"paths")'>路径</button>
+        </div>
+      </div>
+      ${a.mcp_servers.length?`<div class="agent-card-mcp"><span class="subtle">MCP</span>${mcps}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+function openMcpProcessModal(name){
+  const modal=document.getElementById('mcp-proc-modal');
+  const body=document.getElementById('mcp-proc-body');
+  const item=_latestMcpData.find(m=>m.name===name);
+  document.getElementById('mcp-proc-title').textContent=`${name} 进程`;
+  if(!item){
+    body.innerHTML='<div class="empty">未找到 MCP 数据</div>';
+  }else if(!item.processes||!item.processes.length){
+    body.innerHTML='<div class="empty">当前没有运行中的 MCP 进程</div>';
+  }else if(item.process_groups&&item.process_groups.length){
+    const unmappedPids=collectUnmappedMcpGroupPids(item.process_groups);
+    const topActions=unmappedPids.length
+      ? `<div style="display:flex;justify-content:flex-end;padding:0 0 8px"><button class="btn danger sm" data-name="${esc(name)}" data-pids="${esc(JSON.stringify(unmappedPids))}" onclick="killUnmappedMcpGroups(this.dataset.name,JSON.parse(this.dataset.pids||'[]'))">清理所有未归属会话</button></div>`
+      : '';
+    body.innerHTML=`<div class="mcp-group-list">${topActions}${sortByMemoryDesc(item.process_groups).map(group=>{
+      const groupLabel=group.label||group.project_root||'未知项目';
+      const endpoint=group.endpoint_url||'';
+      const meta=[
+        group.process_count?`<span class="badge blue">进程 ${esc(group.process_count)}</span>`:'',
+        `<span class="badge muted">内存 ${esc(formatBytes(group.rss_bytes))}</span>`,
+        group.agent_count!==undefined?`<span class="badge blue">Agent ${esc(group.agent_count||0)}</span>`:'',
+        group.manager_count!==undefined?`<span class="badge muted">Launcher ${esc(group.manager_count||0)}</span>`:'',
+        group.kind_counts&&summarizeKindCounts(group.kind_counts)?`<span class="badge muted">${esc(summarizeKindCounts(group.kind_counts))}</span>`:'',
+        group.unmapped?`<span class="badge yellow">未归属</span>`:'',
+        group.last_active_at?`<span class="badge muted">活跃于 ${esc(formatDateTime(group.last_active_at))}</span>`:'',
+      ].filter(Boolean).join('');
+      return `<div class="mcp-group">
+        <div class="mcp-group-head">
+          <div class="mcp-group-title">
+            <strong>${esc(groupLabel)}</strong>
+            <small>${esc(endpoint||group.project_root||'')}</small>
+            <div class="mcp-group-meta">${meta}</div>
+          </div>
+          <div class="tool-btns">
+            <button class="btn danger sm" onclick='killMcpGroup(${JSON.stringify(name)},${JSON.stringify(groupLabel)},${JSON.stringify(group.pids||[])})'>关闭该组</button>
+          </div>
+        </div>
+        <div class="mcp-group-body">
+          <table class="tbl"><thead><tr><th>PID</th><th>类型</th><th>状态</th><th>命令</th><th></th></tr></thead><tbody>${sortByMemoryDesc(group.processes||[]).map(p=>`<tr class="${getMemoryRowClass(p.rss_bytes)}">
+            <td><span class="mono">${esc(p.pid)}</span></td>
+            <td><span class="badge muted">${esc(p.kind||'server')}</span></td>
+            <td><span class="badge ${badgeClass(p.state_tone||'muted')}">${esc(p.state_label||p.raw_status||'未知')}</span></td>
+            <td><div class="proc-command"><div class="proc-command-main">${esc(p.name||name)}</div><div class="proc-command-sub">${esc(p.cmd||'')}</div><div class="proc-command-sub">内存 ${esc(formatBytes(p.rss_bytes))}</div></div></td>
+            <td><button class="btn danger sm" onclick="killMcpProcess('${name}',${p.pid})">终止</button></td>
+          </tr>`).join('')}</tbody></table>
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  }else{
+    body.innerHTML=`<table class="tbl"><thead><tr><th>PID</th><th>类型</th><th>状态</th><th>命令</th><th></th></tr></thead><tbody>${sortByMemoryDesc(item.processes).map(p=>`<tr class="${getMemoryRowClass(p.rss_bytes)}">
+      <td><span class="mono">${esc(p.pid)}</span></td>
+      <td><span class="badge muted">${esc(p.kind||'server')}</span></td>
+      <td><span class="badge ${badgeClass(p.state_tone||'muted')}">${esc(p.state_label||p.raw_status||'未知')}</span></td>
+      <td><div class="proc-command"><div class="proc-command-main">${esc(p.name||name)}</div><div class="proc-command-sub">${esc(p.cmd||'')}</div><div class="proc-command-sub">内存 ${esc(formatBytes(p.rss_bytes))}</div></div></td>
+      <td><button class="btn danger sm" onclick="killMcpProcess('${name}',${p.pid})">终止</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  }
+  modal.classList.add('open');
+}
+function closeMcpProcessModal(){document.getElementById('mcp-proc-modal').classList.remove('open')}
+document.getElementById('mcp-proc-modal').addEventListener('click',e=>{if(e.target===document.getElementById('mcp-proc-modal'))closeMcpProcessModal()});
+
+// ── Prompt 管理 ─────────────────────────────────────────────────────────────
+async function openPromptModal(tool){
+  document.getElementById('prompt-modal').classList.add('open');
+  document.getElementById('prompt-modal-title').textContent=`${tool} 提示词`;
+  const body=document.getElementById('prompt-modal-body');
+  body.innerHTML='<div class="empty"><div class="spin"></div></div>';
+  const data=await fetch(`/api/prompts/${tool}`).then(r=>r.json());
+  document.getElementById('prompt-modal-title').textContent=`${data.label} 提示词`;
+  body.innerHTML=`
+    <div class="prompt-section">
+      <div class="prompt-head"><strong>共享提示词</strong><span class="subtle">修改后会影响所有工具</span></div>
+      <div class="prompt-body">
+        <div class="prompt-path">${esc(data.shared.path||'无')}</div>
+        <textarea id="prompt-${tool}-shared">${esc(data.shared.text||'')}</textarea>
+        <div><button class="btn primary sm" onclick="savePrompt('${tool}','shared')">保存共享提示词</button></div>
+      </div>
+    </div>
+    <div class="prompt-section">
+      <div class="prompt-head"><strong>当前工具专属提示词</strong><span class="subtle">只影响 ${esc(data.label)}</span></div>
+      <div class="prompt-body">
+        <div class="prompt-path">${esc(data.overlay.path||'无')}</div>
+        <textarea id="prompt-${tool}-overlay">${esc(data.overlay.text||'')}</textarea>
+        <div><button class="btn primary sm" onclick="savePrompt('${tool}','overlay')">保存专属提示词</button></div>
+      </div>
+    </div>
+    <div class="prompt-section">
+      <div class="prompt-head"><strong>工具内当前生效提示词</strong><span class="subtle">由共享 + 专属组合生成，只读</span></div>
+      <div class="prompt-body">
+        <div class="prompt-path">${esc(data.effective.path||'无')}</div>
+        <textarea readonly>${esc(data.effective.text||'')}</textarea>
+      </div>
+    </div>
+  `;
+}
+
+async function savePrompt(tool,scope){
+  const el=document.getElementById(`prompt-${tool}-${scope}`);
+  if(!el)return;
+  const res=await fetch(`/api/prompts/${tool}`,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({scope,content:el.value}),
+  });
+  const data=await res.json();
+  if(!res.ok){
+    alert(data.detail||'保存失败');
+    return;
+  }
+  await openPromptModal(tool);
+  refreshAgents();
+}
+
+function closePromptModal(){document.getElementById('prompt-modal').classList.remove('open')}
+document.getElementById('prompt-modal').addEventListener('click',e=>{if(e.target===document.getElementById('prompt-modal'))closePromptModal()});
+
+// ── 操作 ─────────────────────────────────────────────────────────────────────
+async function runJob(action,tool,sudoPassword,version){
+  const body={action,tool:tool||null};
+  if(sudoPassword)body.sudo_password=sudoPassword;
+  if(version)body.version=version;
+  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  openJobModal(res.id,res.label,()=>{refreshStatus();refreshMcp();refreshProcesses();refreshAgents()});
+}
+async function runMcpUpdate(name){
+  const body={action:'mcp_update',mcp:name};
+  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  openJobModal(res.id,res.label,()=>{refreshMcp();refreshProcesses();refreshStatus()});
+}
+async function runPiPackageUpgrade(spec){
+  const body={action:'pi_package_upgrade',tool:'pi',package:spec};
+  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+  openJobModal(res.id,res.label,()=>{refreshStatus();refreshMcp();refreshProcesses();refreshAgents()});
+}
+function doSync(){runJob('sync')}
+function doMcpUpdateAll(){runJob('mcp_update_all')}
+
+// ── 日志弹窗 ─────────────────────────────────────────────────────────────────
+let _es=null;
+function openJobModal(id,label,onDone){
+  document.getElementById('modal-title').textContent=label;
+  document.getElementById('modal-status').innerHTML='<div class="spin"></div>';
+  document.getElementById('modal-log').innerHTML='';
+  document.getElementById('modal').classList.add('open');
+  if(_es){_es.close();_es=null}
+  const log=document.getElementById('modal-log');
+  const es=new EventSource('/api/jobs/'+id+'/events');
+  _es=es;
+  es.onmessage=e=>{
+    const d=JSON.parse(e.data);
+    if(d.heartbeat)return;
+    if(d.line){const div=document.createElement('div');div.className=d.line.startsWith('ERROR')?'log-err':'';div.textContent=d.line;log.appendChild(div);log.scrollTop=log.scrollHeight}
+    if(d.done){es.close();_es=null;const fin=document.createElement('div');fin.className=d.status==='done'?'log-ok':'log-err';fin.textContent=d.status==='done'?'✓ 完成':'✗ 出错';log.appendChild(fin);log.scrollTop=log.scrollHeight;document.getElementById('modal-status').innerHTML=d.status==='done'?'<span style="color:var(--green)">✓ 完成</span>':'<span style="color:var(--red)">✗ 出错</span>';if(onDone)onDone()}
+  };
+  es.onerror=()=>{es.close();_es=null;document.getElementById('modal-status').innerHTML='<span style="color:var(--red)">连接断开</span>'};
+}
+function closeModal(){document.getElementById('modal').classList.remove('open');if(_es){_es.close();_es=null}}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target===document.getElementById('modal'))closeModal()});
+
+// ── 设置弹窗 ─────────────────────────────────────────────────────────────────
+async function openSettings(){
+  document.getElementById('settings-modal').classList.add('open');
+  const s=await fetch('/api/settings').then(r=>r.json());
+  document.getElementById('sudo-pw-hint').textContent=s.has_sudo_password?'✓ 已保存密码':'未设置';
+  const sel=document.getElementById('theme-select');
+  sel.value=s.theme||'light';
+  document.getElementById('web-host-input').value=s.web_host||'';
+  document.getElementById('web-host-hint').textContent=s.web_host?'✓ 当前地址: '+s.web_host:'默认 127.0.0.1，仅 Linux 服务器需要配置';
+}
+function closeSettings(){document.getElementById('settings-modal').classList.remove('open')}
+document.getElementById('settings-modal').addEventListener('click',e=>{if(e.target===document.getElementById('settings-modal'))closeSettings()});
+
+async function saveSudoPw(el){
+  const pw=document.getElementById('sudo-pw-input').value;
+  if(!pw){alert('请输入密码');return}
+  el.disabled=true;el.textContent='验证中…';
+  try{
+    const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sudo_password:pw})});
+    const d=await r.json();
+    if(r.ok){document.getElementById('sudo-pw-hint').textContent='✓ 已保存密码';document.getElementById('sudo-pw-input').value='';alert('sudo 密码已保存并验证')}
+    else alert('错误: '+(d.detail||'验证失败'))
+  }finally{el.disabled=false;el.textContent='保存密码'}
+}
+async function saveWebHost(){
+  try{
+    const host=document.getElementById('web-host-input').value.trim();
+    const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({web_host:host})});
+    if(!r.ok){const d=await r.json().catch(()=>({}));alert('保存失败: '+(d.detail||r.status));return}
+    document.getElementById('web-host-hint').textContent=host?'✓ 已保存，将用于页面里的 Web 访问地址':'✓ 已清空，已恢复默认地址';
+    await refreshStatus();
+  }catch(e){alert('保存失败: '+e.message)}
+}
+async function clearSudoPw(){
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear_sudo_password:true})});
+  document.getElementById('sudo-pw-hint').textContent='未设置';
+}
+
+// ── 守护进程控制 ──────────────────────────────────────────────────────────────
+async function refreshDaemon(){
+  try{
+    const d=await fetch('/api/self').then(r=>r.json());
+    const on=d.active==='active';
+    const starting=d.active==='activating';
+    document.getElementById('daemon-dot').className='dot '+(on||starting?'active':'inactive');
+    document.getElementById('daemon-label').textContent=d.state_label|| (on?'守护运行中':starting?'守护启动中':'守护已停止');
+    const btn=document.getElementById('daemon-btn');
+    btn.textContent=on?'停止':'启动';
+    btn._on=on;
+    btn.disabled=starting;
+  }catch(e){}
+}
+async function toggleDaemon(){
+  const b=document.getElementById('daemon-btn');
+  if(b._on){if(!confirm('停止守护进程后页面将无法访问，确认？'))return;await fetch('/api/self/stop',{method:'POST'});document.getElementById('daemon-label').textContent='停止中…'}
+  else{await fetch('/api/self/start',{method:'POST'});document.getElementById('daemon-label').textContent='启动中…'}
+  setTimeout(refreshDaemon,1500);
+}
+async function restartDaemon(){
+  if(!confirm('重启守护进程？页面约3秒后恢复。'))return;
+  document.getElementById('daemon-label').textContent='重启中…';
+  await fetch('/api/self/restart',{method:'POST'});
+  setTimeout(()=>{refreshDaemon();refreshStatus()},3000);
+}
+
+// ── toggle 点击 ───────────────────────────────────────────────────────────────
+// (handled per-element via onclick attrs — no global listener needed)
+
+// ── 初始化 ────────────────────────────────────────────────────────────────────
+(async()=>{
+  const s=await fetch('/api/settings').then(r=>r.json()).catch(()=>({theme:'light'}));
+  applyTheme(localStorage.getItem('theme')||s.theme||'light');
+  refreshDaemon();
+  refreshStatus();
+  refreshMcp();
+  refreshAgents();
+  // 进程计数后台静默刷新（不打开弹窗）
+  fetch('/api/processes').then(r=>r.json()).then(p=>{const b=document.getElementById('proc-count');if(b&&p.length)b.textContent=`(${p.length})`;}).catch(()=>{});
+  setInterval(()=>{
+    refreshStatus();refreshDaemon();
+    fetch('/api/processes').then(r=>r.json()).then(p=>{const b=document.getElementById('proc-count');if(b)b.textContent=p.length?`(${p.length})`:'';}).catch(()=>{});
+    // 只刷新数据，不重置弹窗筛选状态
+    if(_openAgentKey&&document.getElementById('agent-detail-modal').classList.contains('open'))
+      refreshAgents();
+  },8000);
+})();
+
+// ── 工具详情弹窗 ──────────────────────────────────────────────────────────────
+function renderToolDetail(t){
+  const runtime=t.status??t.service??'n/a';
+  const current=t.installed||'未安装';
+  const latest=t.latest||'未知';
+  const manageLabel=t.service_manage_label||'托管服务';
+  const location=t.install_root||t.launcher_path||t.resolved_path||'';
+  const rDot=runtime==='active'?'active':runtime==='inactive'?'inactive':'unknown';
+  const sDot=t.service_status==='active'?'active':t.service_status==='inactive'?'inactive':'unknown';
+  const rPill=`<span class="status-pill"><span class="dot ${rDot}"></span>运行</span>`;
+  const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>Web</span>`:'';
+  const btns=[];
+  if(t.web_url&&(t.service_status==='active'||runtime==='active'))btns.push(renderOpenButton(t.web_url,'打开 Web'));
+  if(!t.installed)btns.push(`<button class="btn primary sm" onclick="install('${t.key}');closeToolModal()">安装</button>`);
+  if(t.has_update)btns.push(`<button class="btn sm" style="border-color:var(--yellow);color:var(--yellow)" onclick="upgrade('${t.key}','${t.latest}');closeToolModal()">⬆ ${esc(t.latest)}</button>`);
+  if(t.installed&&!t.has_update)btns.push(`<button class="btn sm" onclick="upgrade('${t.key}');closeToolModal()">重装</button>`);
+  if(t.service_manageable&&t.service_status==='active')btns.push(`<button class="btn sm danger" onclick="runJob('service_stop','${t.key}');closeToolModal()">${t.key==='paseo'?'停止守护':'停止服务'}</button>`);
+  if(t.service_manageable&&t.service_status==='inactive')btns.push(`<button class="btn sm" onclick="runJob('service_start','${t.key}');closeToolModal()">${t.key==='paseo'?'启动守护':'启动服务'}</button>`);
+  const details=[
+    detailRow('启动器',t.launcher_path),detailRow('实际目标',t.resolved_path),
+    detailRow('安装根目录',t.install_root),detailRow('CLI 版本',t.cli_version),
+    detailRow('守护版本',t.daemon_version),detailRow('Desktop 版本',t.desktop_client_version),
+    detailRow('服务名称',t.service_name),detailRow('服务单元',t.service_path),
+    detailRow('Web 地址',t.web_url),detailRow('Web 端口',t.web_port),detailRow('Web 主机',t.web_host),
+    detailRow('Paseo Home',t.daemon_home),detailRow('Paseo 日志',t.daemon_log_path),
+    detailRow('Desktop 托管',t.desktop_managed==null?'':String(t.desktop_managed)),
+    detailRow('监听地址',t.listen),detailRow('中继地址',t.relay),detailRow('连接状态',t.connected_daemon),
+  ].join('');
+  const ocWeb=t.key==='opencode'&&t.web_port?`<div class="tool-subpanel"><div class="tool-subhead"><div><div class="tool-subtitle">OpenCode Web</div><div class="tool-submeta">${esc(t.web_url||'服务未启动')} · 端口 ${esc(t.web_port)}</div></div><div class="tool-btns">${t.web_url&&t.service_status==='active'?renderOpenButton(t.web_url):''}</div></div><div class="path-list">${pathRow('Web 地址',t.web_url||'')}${pathRow('端口',t.web_port||'')}${pathRow('主机',t.web_host||'')}</div></div>`:'';
+  return`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${rPill}${sPill}</div>
+    <div class="kv-grid" style="margin-bottom:10px">
+      <div class="kv-card"><span>已安装</span><strong>${esc(current)}</strong></div>
+      <div class="kv-card"><span>最新版</span><strong>${esc(latest)}</strong></div>
+      <div class="kv-card"><span>运行状态</span><strong>${esc(statusText(runtime))}</strong></div>
+      ${t.service_manageable?`<div class="kv-card"><span>${esc(manageLabel)}</span><strong>${esc(statusText(t.service_status))}</strong></div>`:
+        `<div class="kv-card"><span>托管服务</span><strong>${t.service_manageable?'已接管':'无'}</strong></div>`}
+    </div>
+    ${location?`<div class="path-strip" title="${esc(location)}">${esc(location)}</div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">${btns.join('')}</div>
+    ${ocWeb}${t.key==='pi'?renderPiWebPanel(t.pi_web):''}${t.key==='pi'?renderPiPackagesPanel(t.pi_packages):''}
+    ${details?`<details class="detail-box"><summary>路径与服务详情</summary>${details}</details>`:''}`;
+}
+function openToolModal(key){
+  const t=_latestToolData.find(x=>x.key===key);
+  if(!t)return;
+  document.getElementById('tool-detail-title').textContent=t.label+' 详情';
+  document.getElementById('tool-detail-body').innerHTML=renderToolDetail(t);
+  document.getElementById('tool-detail-modal').classList.add('open');
+}
+function closeToolModal(){document.getElementById('tool-detail-modal').classList.remove('open')}
+document.getElementById('tool-detail-modal').addEventListener('click',e=>{if(e.target===document.getElementById('tool-detail-modal'))closeToolModal()});
+
+// ── 进程弹窗 ──────────────────────────────────────────────────────────────────
+function openProcModal(){document.getElementById('proc-modal').classList.add('open');refreshProcesses()}
+function closeProcModal(){document.getElementById('proc-modal').classList.remove('open')}
+document.getElementById('proc-modal').addEventListener('click',e=>{if(e.target===document.getElementById('proc-modal'))closeProcModal()});
+
+// ── 同步配置弹窗 ──────────────────────────────────────────────────────────────
+function openSyncModal(){document.getElementById('sync-modal').classList.add('open')}
+function closeSyncModal(){document.getElementById('sync-modal').classList.remove('open')}
+document.getElementById('sync-modal').addEventListener('click',e=>{if(e.target===document.getElementById('sync-modal'))closeSyncModal()});
+
+// ── Agent 详情弹窗 ────────────────────────────────────────────────────────────
+let _latestAgentData=[];
+let _openAgentKey=null,_openAgentView=null;
+function openAgentModal(key,view){
+  _openAgentKey=key;_openAgentView=view;
+  const a=_latestAgentData.find(x=>x.key===key);
+  if(!a)return;
+  document.getElementById('agent-detail-title').textContent=a.label+(view==='skills'?' · Skills':' · 来源路径');
+  let html='';
+  if(view==='skills'){
+    const shared=(a.shared_skill_entries||[]).map(e=>({...e,_cat:'shared'}));
+    const target=(a.target_skill_entries||[]).map(e=>({...e,_cat:'target'}));
+    const builtin=(a.builtin_skill_entries||[]).map(e=>({...e,_cat:'builtin'}));
+    const allEntries=[...shared,...target,...builtin];
+    html=`<div style="margin-bottom:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="skill-filter" style="flex:1;min-width:140px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px;outline:none" placeholder="筛选名称或释义…" oninput="filterSkillTable(this.value)">
+      <div class="tog-wrap" id="skill-cat-filters">
+        <span class="tog on" data-cat="shared" onclick="toggleSkillCat(this)">共享</span>
+        <span class="tog on" data-cat="target" onclick="toggleSkillCat(this)">专属</span>
+        <span class="tog on" data-cat="builtin" onclick="toggleSkillCat(this)">内置</span>
+      </div>
+      <span class="subtle" id="skill-count">${allEntries.length} 个</span>
+    </div>
+    <div id="skill-tbl-wrap">${renderSkillTableWithRemove(allEntries,key)}</div>`;
+  }else{
+    html=`<div class="path-list">
+      ${pathRow('归属项目',a.project_root||'')}${pathRow('配置文件',a.config_path)}${pathRow('Skills 目录',a.skills_dir||'')}
+      ${pathRow('生效 Prompt',a.global_prompt_path||'')}${pathRow('专属 Prompt',a.global_prompt_append_path||'')}
+      ${(a.native_skill_dirs||[]).map((d,i)=>pathRow('本地目录'+(i+1),d)).join('')}
+      ${(a.shared_skill_roots||[]).map((d,i)=>pathRow('共享源'+(i+1),d)).join('')}
+      ${(a.target_skill_roots||[]).map((d,i)=>pathRow('专属源'+(i+1),d)).join('')}
+    </div>`;
+  }
+  document.getElementById('agent-detail-body').innerHTML=html;
+  document.getElementById('agent-detail-modal').classList.add('open');
+}
+function renderSkillTableWithRemove(entries,agentKey){
+  if(!entries.length)return'<div style="padding:6px 10px;font-size:12px;color:var(--muted)">无</div>';
+  const catLabel={shared:'共享',target:'专属',builtin:'内置'};
+  return`<div style="overflow-x:auto"><table class="skill-tbl">
+    <thead><tr><th>来源</th><th>名称</th><th>中文释义</th><th>描述</th><th></th></tr></thead>
+    <tbody>${entries.map(e=>`<tr data-name="${esc(e.name||'')}" data-label="${esc(e.zh_label||'')}" data-cat="${esc(e._cat||'')}">
+      <td><span class="badge ${e._cat==='shared'?'blue':e._cat==='builtin'?'muted':'yellow'}">${esc(catLabel[e._cat]||e._cat||'')}</span></td>
+      <td><span class="skill-name">${esc(e.name||'')}</span></td>
+      <td>${esc(e.zh_label||e.name||'')}</td>
+      <td class="skill-desc">${esc(e.description||'')}</td>
+      <td>${e.path?`<button class="btn danger sm" onclick='removeSkill(${JSON.stringify(e.path)},${JSON.stringify(agentKey)})'>移除</button>`:''}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+let _skillCatFilter='';
+function toggleSkillCat(el){
+  el.classList.toggle('on');
+  const cats=[...document.querySelectorAll('#skill-cat-filters .tog')].filter(s=>s.classList.contains('on')).map(t=>t.dataset.cat).filter(Boolean);
+  _skillCatFilter=cats.length?cats.join(','):'__none__';
+  filterSkillTable(document.getElementById('skill-filter')?.value||'');
+}
+function filterSkillTable(q){
+  const wrap=document.getElementById('skill-tbl-wrap');
+  if(!wrap)return;
+  const lq=q.toLowerCase();
+  const activeCats=_skillCatFilter==='__none__'?new Set():_skillCatFilter?new Set(_skillCatFilter.split(',')):null;
+  let vis=0;
+  wrap.querySelectorAll('tbody tr').forEach(r=>{
+    const matchText=!lq||r.dataset.name.includes(lq)||r.dataset.label.includes(lq);
+    const matchCat=!activeCats||activeCats.has(r.dataset.cat||'');
+    const show=matchText&&matchCat;
+    r.style.display=show?'':'none';
+    if(show)vis++;
+  });
+  const cnt=document.getElementById('skill-count');
+  if(cnt)cnt.textContent=vis+' 个';
+}
+async function removeSkill(path,agentKey){
+  if(!confirm(`确认移除 skill: ${path.split('/').pop()}？此操作会删除文件。`))return;
+  const r=await fetch('/api/skills?path='+encodeURIComponent(path),{method:'DELETE'});
+  if(!r.ok){alert('移除失败: '+(await r.json().catch(()=>({detail:'未知错误'}))).detail);return}
+  await refreshAgents();
+  openAgentModal(agentKey,'skills');
+}
+function closeAgentModal(){_openAgentKey=null;document.getElementById('agent-detail-modal').classList.remove('open')}
+document.getElementById('agent-detail-modal').addEventListener('click',e=>{if(e.target===document.getElementById('agent-detail-modal'))closeAgentModal()});
+
+// ── stub: remove tab references ───────────────────────────────────────────────
+function showTab(){}
+document.getElementById('add-mcp-modal').addEventListener('click',e=>{if(e.target===document.getElementById('add-mcp-modal'))closeAddMcpModal()});
+</script>
+</body>
+</html>

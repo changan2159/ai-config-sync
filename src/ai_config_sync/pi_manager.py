@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -112,6 +113,8 @@ def _parse_installed_version(output: str) -> str:
         return cleaned.split()[-1].removeprefix("v")
     if cleaned.startswith("v"):
         return cleaned.removeprefix("v")
+    if re.fullmatch(r"\d+\.\d+(?:\.\d+)*", cleaned):
+        return cleaned
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:

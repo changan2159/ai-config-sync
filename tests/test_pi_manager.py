@@ -92,3 +92,22 @@ def test_pi_status_reports_launcher_version(tmp_path: Path, monkeypatch: pytest.
     assert result["launcher_exists"] is True
     assert result["version"] == "0.73.0"
     assert result["version_output"] == "pi 0.73.0"
+
+
+def test_pi_status_accepts_plain_semver_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = default_pi_paths(tmp_path)
+    paths.bin_dir.mkdir(parents=True, exist_ok=True)
+    paths.launcher_path.write_text("", encoding="utf-8")
+
+    def fake_run_command(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        assert args == [str(paths.launcher_path), "--version"]
+        assert check is False
+        return subprocess.CompletedProcess(args, 0, stdout="0.80.2\n", stderr="")
+
+    monkeypatch.setattr("ai_config_sync.pi_manager._run_command", fake_run_command)
+
+    result = pi_status(home=tmp_path)
+
+    assert result["launcher_exists"] is True
+    assert result["version"] == "0.80.2"
+    assert result["version_output"] == "0.80.2"

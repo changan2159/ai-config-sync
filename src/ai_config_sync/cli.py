@@ -341,6 +341,10 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_clean = subparsers.add_parser("mcp-clean")
     mcp_clean.add_argument("--reap-interval", type=float, default=0, help="Run a continuous reap loop at the given interval (seconds); 0 = one-shot")
 
+    web_server = subparsers.add_parser("web-server", help="Start the AI Config Sync web dashboard")
+    web_server.add_argument("--host", default="0.0.0.0")
+    web_server.add_argument("--port", type=int, default=9731)
+
     return parser
 
 
@@ -509,6 +513,10 @@ def main() -> None:
         if args.command == "mcp-remove":
             result = _run_config_update(paths, lambda config_path: remove_mcp_server(config_path, args.name))
             print(json.dumps(result, indent=2, ensure_ascii=False))
+            return
+        if args.command == "web-server":
+            from ai_config_sync.web_server import serve
+            serve(host=args.host, port=args.port)
             return
         parser.error(f"Unknown command: {args.command}")
     except SyncError as exc:
