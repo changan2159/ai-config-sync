@@ -106,6 +106,23 @@ def preflight_mcp(repo_root: Path, components: Iterable[str] | None = None) -> d
     }
 
 
+def preflight_output_paths(repo_root: Path) -> tuple[Path, ...]:
+    serena_manager_root = repo_root / "vendor" / "mcp" / "serena-manager"
+    return (
+        repo_root / "vendor" / "toolchain",
+        repo_root / "vendor" / "mcp" / "serena-agent" / ".venv",
+        repo_root / "vendor" / "mcp" / "serena-agent" / ".requirements.sha256",
+        serena_manager_root / ".venv",
+        serena_manager_root / ".source.sha256",
+        repo_root / "vendor" / "mcp" / "fetch" / ".venv",
+        repo_root / "vendor" / "mcp" / "fetch" / ".requirements.sha256",
+        repo_root / "vendor" / "mcp" / "codegraph" / "node_modules",
+        repo_root / "vendor" / "mcp" / "codegraph" / ".package-lock.sha256",
+        repo_root / "vendor" / "mcp" / "node-repl-linux" / "node_modules",
+        repo_root / "vendor" / "mcp" / "node-repl-linux" / ".package-lock.sha256",
+    )
+
+
 def _normalize_components(components: Iterable[str] | None) -> tuple[str, ...]:
     if components is None:
         return ("serena-agent", "serena-manager", "fetch", "codegraph", "node-repl-linux")

@@ -2,22 +2,26 @@
   "mcpServers": {
     "fetch": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/shared/fetch.sh"
+      "command": "${REPO_ROOT}/tools/mcp/shared/fetch.sh",
+      "directTools": true
     },
     "serena": {
       "type": "stdio",
-      "command": "${REPO_ROOT}/tools/mcp/shared/serena-manager.sh"
+      "command": "${REPO_ROOT}/tools/mcp/shared/serena-manager.sh",
+      "directTools": true
     },
     "node_repl": {
       "type": "stdio",
       "command": "${REPO_ROOT}/tools/mcp/shared/node-repl-linux.sh",
-      "toolTimeoutSec": 120
+      "toolTimeoutSec": 120,
+      "directTools": true
     },
     "codegraph": {
       "type": "stdio",
       "command": "${REPO_ROOT}/tools/mcp/shared/codegraph.sh",
       "args": ["serve", "--mcp"],
-      "toolTimeoutSec": 120
+      "toolTimeoutSec": 120,
+      "directTools": true
     }
   },
   "skillRoots": [
@@ -56,19 +60,69 @@
       "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
       "modelsPath": "${HOME}/.pi/agent/models.json",
       "skillsDir": "${HOME}/.pi/agent/skills-shared",
+      "skillRoots": [
+        {
+          "path": "${REPO_ROOT}/skills/pi"
+        }
+      ],
+      "fallbackChainsPath": "${HOME}/.pi/fallback-chains.json",
+      "contextPruneSettingsPath": "${HOME}/.pi/agent/context-prune/settings.json",
       "packages": [
         "npm:pi-mcp-adapter",
         "npm:@narumitw/pi-plan-mode",
         "npm:pi-subagents",
-        "npm:pi-nano-context"
+        "npm:pi-goal",
+        "npm:pi-context-prune",
+        "npm:pi-context-usage",
+        "npm:pi-cache-graph",
+        "npm:pi-fallback-provider"
       ],
+      "mcpSettings": {
+        "disableProxyTool": true
+      },
       "enableSkillCommands": true,
-      "defaultProvider": "openai",
-      "defaultModel": "gpt-5.4",
+      "defaultProvider": "fallback",
+      "defaultModel": "default",
       "providers": {
         "openai": {
-          "baseUrl": "http://38.145.220.6:9000/v1"
+          "baseUrl": "http://38.145.220.6:9000/v1",
+          "api": "openai-responses",
+          "apiKey": "$OPENAI_API_KEY",
+          "authHeader": true,
+          "models": [
+            {
+              "id": "gpt-5.4",
+              "name": "GPT-5.4 (Relay)",
+              "reasoning": true,
+              "input": ["text", "image"],
+              "contextWindow": 400000,
+              "maxTokens": 128000,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            }
+          ]
         }
+      },
+      "fallbackChains": {
+        "default": [
+          "openai/gpt-5.4"
+        ],
+        "review": [
+          "openai/gpt-5.4"
+        ]
+      },
+      "contextPruneSettings": {
+        "enabled": true,
+        "showPruneStatusLine": true,
+        "summarizerModel": "default",
+        "summarizerThinking": "minimal",
+        "pruneOn": "agent-message",
+        "remindUnprunedCount": true,
+        "batchingMode": "turn"
       },
       "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
       "globalPromptAppendPath": "${REPO_ROOT}/prompts/pi-global-prompt.md"

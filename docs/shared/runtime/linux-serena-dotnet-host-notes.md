@@ -13,6 +13,7 @@ Keep constitutional collaboration defaults in the synced client prompt files; ke
   .venv/bin/python -m ai_config_sync.cli mcp-preflight
   ```
 - After `mcp-preflight` succeeds, restart the affected client or MCP session so it picks up the repaired toolchain.
+- `ai-config-sync sync-once` and watch-mode resyncs now invoke `mcp-preflight` automatically before managed sync work, so ordinary config sync should repair stale Serena stamps instead of leaving Pi/Codex/Claude/OpenCode to discover the failure later.
 - If `mcp-preflight` itself fails, check `vendor/toolchain/runtime-env.sh` and `toolchain.lock.json` for stale pins; do not fall back to host `uv`, `npm`, or `node` directly.
 
 ## .NET Runtime Policy

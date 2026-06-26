@@ -6,6 +6,8 @@
 - When CodeGraph is available, use it as a fast candidate-discovery layer for indexed source code: project structure, related symbols, likely owner files, callers/callees, and impact sets. Treat it as a discovery index, not the final source of truth; confirm edit targets with Serena or direct reads before changing code. Expect manual `codegraph sync` in sessions where watch is intentionally disabled.
 - Default retrieval sequence when both Serena and CodeGraph are available: start with CodeGraph for anchored candidate discovery, switch to Serena to confirm owners/symbols/call chains, and use `rg` for strings, config keys, routes, JSON fields, SQL, logs, and non-indexed assets. For implementation work, do not edit from CodeGraph output alone. When the main ask is retrieval or structure understanding, prefer `fast-codebase-retrieval` as the default skill path.
 - For persistent Codex work, prefer repository-local `AGENTS.md`, project docs, and Serena memories for durable context according to their scope.
+- `fetch` is available as an MCP tool in Codex sessions; use it for documentation lookups, changelog reading, and external API references rather than relying on training-data recall for version-sensitive details.
+- `node_repl` is available as an MCP tool; use it as a quick scratchpad for validating JavaScript snippets, arithmetic, or data transforms without creating temporary files.
 
 # Codex Skill Routing Additions
 

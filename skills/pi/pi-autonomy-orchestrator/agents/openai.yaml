@@ -1,0 +1,7 @@
+interface:
+  display_name: "Pi Autonomy Orchestrator"
+  short_description: "Automatically use Pi-native runtime capabilities"
+  default_prompt: "Use $pi-autonomy-orchestrator in Pi sessions to automatically rely on Pi-native goal, plan, prune, fallback, and delegation surfaces during substantial development work."
+
+policy:
+  allow_implicit_invocation: true

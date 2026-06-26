@@ -5,11 +5,14 @@ import json
 import os
 import sys
 import time
+import shutil
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from ai_config_sync.errors import SyncError
-from ai_config_sync.mcp_runtime import preflight_mcp, reap_mcp
+from ai_config_sync.mcp_runtime import preflight_output_paths, preflight_mcp, reap_mcp
 from ai_config_sync.mcp_updates import (
     update_all_mcp,
     update_codegraph,
@@ -24,6 +27,7 @@ from ai_config_sync.opencode_manager import (
     start_opencode_service,
     stop_opencode_service,
 )
+from ai_config_sync.pi_manager import install_pi, pi_status
 from ai_config_sync.pi_package_manager import pi_package_paths
 from ai_config_sync.pi_web_manager import (
     install_pi_web,
@@ -90,19 +94,28 @@ def _run_config_update(
 ) -> dict[str, Any]:
     original_text = paths.config_path.read_text(encoding="utf-8") if paths.config_path.exists() else None
     snapshots: dict[Path, bytes | None] = {}
-    try:
-        result = update(paths.config_path)
-        config = load_sync_config(paths.config_path)
-        snapshots = _snapshot_managed_files(config, paths.state_path)
-        result["sync"] = sync_clients(config, paths.state_path)
-        return result
-    except Exception:
-        if original_text is None:
-            paths.config_path.unlink(missing_ok=True)
-        else:
-            _atomic_write_text(paths.config_path, original_text)
-        _restore_managed_files(snapshots)
-        raise
+    with tempfile.TemporaryDirectory(prefix="ai-config-sync-rollback-") as temp_root_text:
+        temp_root = Path(temp_root_text)
+        preflight_snapshots = _snapshot_managed_paths(
+            preflight_output_paths(paths.repo_root),
+            temp_root / "preflight",
+            paths.repo_root,
+        )
+        try:
+            result = update(paths.config_path)
+            preflight_mcp(paths.repo_root)
+            config = load_sync_config(paths.config_path)
+            snapshots = _snapshot_managed_files(config, paths.state_path)
+            result["sync"] = sync_clients(config, paths.state_path)
+            return result
+        except Exception:
+            if original_text is None:
+                paths.config_path.unlink(missing_ok=True)
+            else:
+                _atomic_write_text(paths.config_path, original_text)
+            _restore_managed_files(snapshots)
+            _restore_managed_paths(preflight_snapshots)
+            raise
 
 
 def _managed_output_paths(config: Any, state_path: Path) -> list[Path]:
@@ -117,6 +130,9 @@ def _managed_output_paths(config: Any, state_path: Path) -> list[Path]:
     if config.pi is not None:
         paths.append(config.pi.settings_path)
         paths.append(config.pi.mcp_config_path)
+        paths.append(config.pi.models_path)
+        paths.append(config.pi.fallback_chains_path)
+        paths.append(config.pi.context_prune_settings_path)
         pi_paths = pi_package_paths(config.pi.settings_path)
         paths.append(pi_paths.package_json_path)
         paths.append(pi_paths.package_lock_path)
@@ -143,9 +159,66 @@ def _snapshot_managed_files(config: Any, state_path: Path) -> dict[Path, bytes |
 def _restore_managed_files(snapshots: dict[Path, bytes | None]) -> None:
     for path, content in snapshots.items():
         if content is None:
-            path.unlink(missing_ok=True)
+            _remove_path(path)
             continue
         _atomic_write_bytes(path, content)
+
+
+@dataclass(frozen=True)
+class _PathSnapshot:
+    kind: str
+    content: bytes | None = None
+    source_path: Path | None = None
+
+
+def _snapshot_managed_paths(paths: list[Path], snapshot_root: Path, repo_root: Path) -> dict[Path, _PathSnapshot]:
+    snapshots: dict[Path, _PathSnapshot] = {}
+    for path in paths:
+        if path.is_symlink() or path.is_file():
+            # Symlinks are captured as raw bytes of the target content; the link
+            # structure is not preserved. Acceptable for current managed paths,
+            # which are regular files or directories, never bare symlinks.
+            snapshots[path] = _PathSnapshot(kind="file", content=path.read_bytes())
+            continue
+        if path.is_dir():
+            try:
+                snapshot_path = snapshot_root / path.relative_to(repo_root)
+            except ValueError:
+                snapshot_path = snapshot_root / path.name
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(path, snapshot_path, copy_function=shutil.copy2, symlinks=True)
+            snapshots[path] = _PathSnapshot(kind="dir", source_path=snapshot_path)
+            continue
+        snapshots[path] = _PathSnapshot(kind="missing")
+    return snapshots
+
+
+def _restore_managed_paths(snapshots: dict[Path, _PathSnapshot]) -> None:
+    for path, snapshot in snapshots.items():
+        if snapshot.kind == "missing":
+            _remove_path(path)
+            continue
+        if snapshot.kind == "file":
+            _remove_path(path)
+            _atomic_write_bytes(path, snapshot.content or b"")
+            continue
+        # For directory restores, let rmtree propagate failures rather than
+        # silently proceeding to a copytree that would fail with a confusing
+        # "already exists" error masking the original removal problem.
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        if snapshot.source_path is None:
+            continue
+        shutil.copytree(snapshot.source_path, path, symlinks=True)
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+    elif path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -229,6 +302,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("opencode-status")
 
+    pi_install = subparsers.add_parser("pi-install")
+    pi_install.add_argument("--version", required=False)
+
+    subparsers.add_parser("pi-status")
+
+    pi_bootstrap = subparsers.add_parser("pi-bootstrap")
+    pi_bootstrap.add_argument("--config", required=False)
+    pi_bootstrap.add_argument("--version", required=False)
+
     opencode_service_install = subparsers.add_parser("opencode-service-install")
     opencode_service_install.add_argument("--port", type=int, default=3000)
     opencode_service_install.add_argument("--hostname", default="0.0.0.0")
@@ -307,6 +389,21 @@ def main() -> None:
         if args.command == "opencode-status":
             print(json.dumps(opencode_status(), indent=2, ensure_ascii=False))
             return
+        if args.command == "pi-install":
+            print(json.dumps(install_pi(version=args.version), indent=2, ensure_ascii=False))
+            return
+        if args.command == "pi-status":
+            print(json.dumps(pi_status(), indent=2, ensure_ascii=False))
+            return
+        if args.command == "pi-bootstrap":
+            paths = default_paths(repo_root, Path(args.config) if args.config else None)
+            result = {
+                "pi_install": install_pi(version=args.version),
+                "mcp_preflight": preflight_mcp(repo_root),
+                "sync": sync_clients(load_sync_config(paths.config_path), paths.state_path),
+            }
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return
         if args.command == "opencode-service-install":
             print(
                 json.dumps(
@@ -368,6 +465,7 @@ def main() -> None:
             return
         paths = default_paths(repo_root, Path(args.config) if hasattr(args, "config") and args.config else None)
         if args.command == "sync-once":
+            preflight_mcp(repo_root)
             print(json.dumps(sync_clients(load_sync_config(paths.config_path), paths.state_path), indent=2, ensure_ascii=False))
             return
         if args.command == "sync-watch":

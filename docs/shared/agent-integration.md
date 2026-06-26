@@ -28,8 +28,13 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 ### Pi
 
 - Shared skills are synced into `~/.pi/agent/skills-shared`.
+- Pi-only repo skills live under `skills/pi/` and are added through the Pi target `skillRoots`.
 - Direct skill invocation uses `/skill:<name>`.
 - This repository manages `enableSkillCommands` in Pi settings so direct skill commands remain available after sync.
+- Shared `fetch`, `serena`, `codegraph`, and `node_repl` MCP servers are configured for direct-tool exposure in Pi, and the managed Pi MCP settings hide the generic `mcp` proxy tool once the direct-tool cache is ready.
+- This repository also manages Pi-native capability packages: `pi-goal`, `pi-context-prune`, `pi-context-usage`, `pi-cache-graph`, and `pi-fallback-provider`, in addition to the existing Pi integration packages.
+- Pi fallback routing is configured through `~/.pi/fallback-chains.json`; the current managed default is `fallback/default -> openai/gpt-5.4`, and sync treats the chain file as a fully managed payload, rewriting it before switching the Pi default provider.
+- Pi context pruning is configured through `~/.pi/agent/context-prune/settings.json`, which sync also treats as a fully managed payload rather than merging with stale keys.
 - If Pi prompt, settings, or skills were just synced, restart `pi` or run `/reload` before relying on the updated command set.
 
 ## Delegation Mapping

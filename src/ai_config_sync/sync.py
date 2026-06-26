@@ -29,6 +29,7 @@ class McpServerConfig:
     url: str | None = None
     headers: dict[str, str] | None = None
     tool_timeout_sec: int | None = None
+    direct_tools: bool | tuple[str, ...] | None = None
     enabled: bool = True
 
 
@@ -75,10 +76,15 @@ class PiTargetConfig:
     mcp_config_path: Path
     models_path: Path
     skills_dir: Path
+    fallback_chains_path: Path
+    context_prune_settings_path: Path
     skill_roots: tuple[SkillRootConfig, ...] = ()
     mcp_servers: tuple[McpServerConfig, ...] = ()
     packages: tuple[str, ...] = ("npm:pi-mcp-adapter",)
+    mcp_settings: dict[str, Any] | None = None
     providers: dict[str, Any] | None = None
+    fallback_chains: dict[str, list[str]] | None = None
+    context_prune_settings: dict[str, Any] | None = None
     default_provider: str | None = None
     default_model: str | None = None
     enable_skill_commands: bool | None = None
@@ -173,10 +179,17 @@ def load_sync_config(path: Path) -> SyncConfig:
             mcp_config_path=_resolve_path(targets["pi"]["mcpConfigPath"], repo_root),
             models_path=_optional_path(targets["pi"].get("modelsPath"), repo_root) or pi_settings_path.with_name("models.json"),
             skills_dir=_resolve_path(targets["pi"]["skillsDir"], repo_root),
+            fallback_chains_path=_optional_path(targets["pi"].get("fallbackChainsPath"), repo_root)
+            or pi_settings_path.parent.parent / "fallback-chains.json",
+            context_prune_settings_path=_optional_path(targets["pi"].get("contextPruneSettingsPath"), repo_root)
+            or pi_settings_path.parent / "context-prune" / "settings.json",
             skill_roots=_parse_skill_roots(targets["pi"].get("skillRoots", []), repo_root),
             mcp_servers=_parse_mcp_servers(targets["pi"].get("mcpServers", {}), repo_root),
             packages=tuple(str(item) for item in targets["pi"].get("packages", ["npm:pi-mcp-adapter"])),
+            mcp_settings=dict(targets["pi"].get("mcpSettings", {})),
             providers=dict(targets["pi"].get("providers", {})),
+            fallback_chains=_parse_string_list_mapping(targets["pi"].get("fallbackChains", {})),
+            context_prune_settings=dict(targets["pi"].get("contextPruneSettings", {})),
             default_provider=targets["pi"].get("defaultProvider"),
             default_model=targets["pi"].get("defaultModel"),
             enable_skill_commands=targets["pi"].get("enableSkillCommands"),
@@ -220,12 +233,15 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     previous_pi_settings_path = _optional_path(previous.get("pi", {}).get("settings_path"))
     previous_pi_mcp_config_path = _optional_path(previous.get("pi", {}).get("mcp_config_path"))
     previous_pi_models_path = _optional_path(previous.get("pi", {}).get("models_path"))
+    previous_pi_fallback_chains_path = _optional_path(previous.get("pi", {}).get("fallback_chains_path"))
+    previous_pi_context_prune_settings_path = _optional_path(previous.get("pi", {}).get("context_prune_settings_path"))
     previous_codex_skills_dir = _optional_path(previous.get("codex", {}).get("skills_dir"))
     previous_claude_skills_dir = _optional_path(previous.get("claude", {}).get("skills_dir"))
     previous_pi_skills_dir = _optional_path(previous.get("pi", {}).get("skills_dir"))
     previous_pi_default_provider = previous.get("pi", {}).get("default_provider")
     previous_pi_default_model = previous.get("pi", {}).get("default_model")
     previous_pi_enable_skill_commands = previous.get("pi", {}).get("enable_skill_commands")
+    previous_pi_mcp_setting_keys = _normalize_string_list(previous.get("pi", {}).get("mcp_setting_keys"))
     codex_legacy_paths = _legacy_default_target_paths("codex")
     claude_legacy_paths = _legacy_default_target_paths("claude")
     opencode_legacy_paths = _legacy_default_target_paths("opencode")
@@ -285,6 +301,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     pi_settings_payload: tuple[Path, str] | None = None
     pi_mcp_config_payload: tuple[Path, str] | None = None
     pi_models_payload: tuple[Path, str] | None = None
+    pi_extra_json_payloads: list[tuple[Path, str]] = []
     codex_skill_plan: SkillLinkPlan | None = None
     claude_skill_plan: SkillLinkPlan | None = None
     pi_skill_plan: SkillLinkPlan | None = None
@@ -442,20 +459,43 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         pi_mcp_original = config.pi.mcp_config_path.read_text(encoding="utf-8") if config.pi.mcp_config_path.exists() else ""
         pi_mcp_config_payload = (
             config.pi.mcp_config_path,
-            build_pi_mcp_config_payload(pi_mcp_original, pi_servers, previous_pi_mcp),
+            build_pi_mcp_config_payload(
+                pi_mcp_original,
+                pi_servers,
+                previous_pi_mcp,
+                config.pi.mcp_settings or {},
+                previous_pi_mcp_setting_keys,
+            ),
         )
         pi_models_original = config.pi.models_path.read_text(encoding="utf-8") if config.pi.models_path.exists() else ""
         pi_models_payload = (
             config.pi.models_path,
             build_pi_models_payload(pi_models_original, config.pi.providers or {}, previous_pi_providers),
         )
+        pi_extra_json_payloads.append(
+            (
+                config.pi.fallback_chains_path,
+                build_pi_fallback_chains_payload(config.pi.fallback_chains or {}),
+            )
+        )
+        pi_extra_json_payloads.append(
+            (
+                config.pi.context_prune_settings_path,
+                build_pi_context_prune_settings_payload(config.pi.context_prune_settings or {}),
+            )
+        )
         pi_skill_plan = plan_skill_links(config.pi.skills_dir, pi_skills, previous_pi_skills)
         pi_result: dict[str, Any] = {
             "settings_path": str(config.pi.settings_path),
             "mcp_config_path": str(config.pi.mcp_config_path),
             "models_path": str(config.pi.models_path),
+            "fallback_chains_path": str(config.pi.fallback_chains_path),
+            "context_prune_settings_path": str(config.pi.context_prune_settings_path),
             "packages": list(config.pi.packages),
+            "mcp_setting_keys": sorted((config.pi.mcp_settings or {}).keys()),
             "providers": sorted((config.pi.providers or {}).keys()),
+            "fallback_chains": sorted((config.pi.fallback_chains or {}).keys()),
+            "context_prune_setting_keys": sorted((config.pi.context_prune_settings or {}).keys()),
             "skills": {"linked": list(pi_skill_plan.linked), "removed": list(pi_skill_plan.removed)},
         }
         if config.pi.default_provider is not None:
@@ -475,9 +515,14 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             "settings_path": str(config.pi.settings_path),
             "mcp_config_path": str(config.pi.mcp_config_path),
             "models_path": str(config.pi.models_path),
+            "fallback_chains_path": str(config.pi.fallback_chains_path),
+            "context_prune_settings_path": str(config.pi.context_prune_settings_path),
             "skills_dir": str(config.pi.skills_dir),
             "packages": list(config.pi.packages),
+            "mcp_setting_keys": sorted((config.pi.mcp_settings or {}).keys()),
             "providers": sorted((config.pi.providers or {}).keys()),
+            "fallback_chain_names": sorted((config.pi.fallback_chains or {}).keys()),
+            "context_prune_setting_keys": sorted((config.pi.context_prune_settings or {}).keys()),
             "default_provider": config.pi.default_provider,
             "default_model": config.pi.default_model,
             "enable_skill_commands": config.pi.enable_skill_commands,
@@ -515,7 +560,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
             pi_mcp_original = previous_pi_mcp_config_path.read_text(encoding="utf-8") if previous_pi_mcp_config_path.exists() else ""
             pi_mcp_config_payload = (
                 previous_pi_mcp_config_path,
-                build_pi_mcp_config_payload(pi_mcp_original, (), previous_pi_mcp),
+                build_pi_mcp_config_payload(pi_mcp_original, (), previous_pi_mcp, {}, previous_pi_mcp_setting_keys),
             )
         if previous_pi_models_path is not None:
             pi_models_original = previous_pi_models_path.read_text(encoding="utf-8") if previous_pi_models_path.exists() else ""
@@ -526,18 +571,34 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
         if previous_pi_skills_dir is not None:
             pi_skill_plan = plan_skill_links(previous_pi_skills_dir, [], previous_pi_skills)
 
+    if config.pi is not None:
+        pi_package_sync_result = sync_pi_packages(
+            settings_path=config.pi.settings_path,
+            packages=config.pi.packages,
+            previous_packages=previous_pi_packages,
+        )
+        result["targets"]["pi"]["package_sync"] = pi_package_sync_result
+    elif previous_pi_settings_path is not None and previous_pi_packages:
+        sync_pi_packages(
+            settings_path=previous_pi_settings_path,
+            packages=(),
+            previous_packages=previous_pi_packages,
+        )
+
     if codex_config_payload is not None:
         _atomic_write_text(*codex_config_payload)
     if claude_config_payload is not None:
         _atomic_write_text(*claude_config_payload)
     if opencode_config_payload is not None:
         _atomic_write_text(*opencode_config_payload)
-    if pi_settings_payload is not None:
-        _atomic_write_text(*pi_settings_payload)
     if pi_mcp_config_payload is not None:
         _atomic_write_text(*pi_mcp_config_payload)
     if pi_models_payload is not None:
         _atomic_write_text(*pi_models_payload)
+    for payload in pi_extra_json_payloads:
+        _atomic_write_text(*payload)
+    if pi_settings_payload is not None:
+        _atomic_write_text(*pi_settings_payload)
     if codex_skill_plan is not None:
         apply_skill_link_plan(codex_skill_plan)
     if claude_skill_plan is not None:
@@ -556,19 +617,14 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
     if pi_prompt_text is not None and active_pi_prompt_path is not None:
         sync_global_prompt(active_pi_prompt_path, pi_prompt_text)
     _cleanup_previous_output_path(previous_pi_prompt_path, active_pi_prompt_path)
-    if config.pi is not None:
-        pi_package_sync_result = sync_pi_packages(
-            settings_path=config.pi.settings_path,
-            packages=config.pi.packages,
-            previous_packages=previous_pi_packages,
-        )
-        result["targets"]["pi"]["package_sync"] = pi_package_sync_result
-    elif previous_pi_settings_path is not None and previous_pi_packages:
-        sync_pi_packages(
-            settings_path=previous_pi_settings_path,
-            packages=(),
-            previous_packages=previous_pi_packages,
-        )
+    _cleanup_previous_output_path(
+        previous_pi_fallback_chains_path,
+        config.pi.fallback_chains_path if config.pi is not None else None,
+    )
+    _cleanup_previous_output_path(
+        previous_pi_context_prune_settings_path,
+        config.pi.context_prune_settings_path if config.pi is not None else None,
+    )
 
     state = {
         "codex": codex_state,
@@ -582,7 +638,7 @@ def sync_clients(config: SyncConfig, state_path: Path) -> dict[str, Any]:
 
 
 def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
-    from ai_config_sync.mcp_runtime import reap_mcp
+    from ai_config_sync.mcp_runtime import preflight_mcp, reap_mcp
 
     try:
         reap_mcp(paths.repo_root)  # clean stale orphans on startup
@@ -597,6 +653,7 @@ def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
             fingerprint = compute_fingerprint(paths.config_path)
             if fingerprint != last_fingerprint:
                 config = load_sync_config(paths.config_path)
+                preflight_mcp(paths.repo_root)
                 result = sync_clients(config, paths.state_path)
                 result["watch_fingerprint"] = fingerprint
                 print(json.dumps(result, ensure_ascii=False), flush=True)
@@ -622,6 +679,7 @@ def watch_loop(paths: SyncPaths, interval_seconds: float) -> None:
 
 
 def compute_fingerprint(config_path: Path) -> str:
+    repo_root = config_path.expanduser().resolve().parent
     digest = hashlib.sha256()
     digest.update(config_path.read_bytes())
     config = load_sync_config(config_path)
@@ -638,7 +696,37 @@ def compute_fingerprint(config_path: Path) -> str:
             digest.update(overlay_path.read_bytes())
     for skill in resolve_skills(_all_skill_roots(config), config.include, allow_missing=True):
         digest.update(skill.skill_file.read_bytes())
+    for runtime_path in _managed_mcp_runtime_source_paths(repo_root):
+        if runtime_path.is_file():
+            digest.update(str(runtime_path.relative_to(repo_root)).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(runtime_path.read_bytes())
     return digest.hexdigest()
+
+
+def _managed_mcp_runtime_source_paths(repo_root: Path) -> tuple[Path, ...]:
+    serena_manager_root = repo_root / "vendor" / "mcp" / "serena-manager"
+    return tuple(
+        path
+        for path in [
+            repo_root / "toolchain.lock.json",
+            repo_root / "tools" / "mcp" / "shared" / "common.sh",
+            repo_root / "tools" / "mcp" / "shared" / "serena-manager.sh",
+            repo_root / "tools" / "mcp" / "shared" / "serena-agent.sh",
+            repo_root / "tools" / "mcp" / "shared" / "fetch.sh",
+            repo_root / "tools" / "mcp" / "shared" / "codegraph.sh",
+            repo_root / "tools" / "mcp" / "shared" / "node-repl-linux.sh",
+            repo_root / "vendor" / "mcp" / "serena-agent" / "requirements.lock",
+            repo_root / "vendor" / "mcp" / "serena-agent" / "runner.py",
+            repo_root / "vendor" / "mcp" / "fetch" / "requirements.lock",
+            repo_root / "vendor" / "mcp" / "codegraph" / "package-lock.json",
+            repo_root / "vendor" / "mcp" / "node-repl-linux" / "package-lock.json",
+            serena_manager_root / "pyproject.toml",
+            serena_manager_root / "uv.lock",
+            *sorted((serena_manager_root / "src" / "serena_manager").rglob("*.py")),
+        ]
+        if path.exists()
+    )
 
 
 def resolve_skills(
@@ -945,10 +1033,16 @@ def build_pi_settings_payload(
 
 def sync_pi_mcp_config(config_path: Path, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> None:
     original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    _atomic_write_text(config_path, build_pi_mcp_config_payload(original, servers, previous_names))
+    _atomic_write_text(config_path, build_pi_mcp_config_payload(original, servers, previous_names, {}, []))
 
 
-def build_pi_mcp_config_payload(original: str, servers: tuple[McpServerConfig, ...], previous_names: list[str]) -> str:
+def build_pi_mcp_config_payload(
+    original: str,
+    servers: tuple[McpServerConfig, ...],
+    previous_names: list[str],
+    settings: dict[str, Any],
+    previous_setting_keys: list[str],
+) -> str:
     data = json.loads(original) if original.strip() else {}
     current = dict(data.get("mcpServers", {}))
     for name in previous_names:
@@ -956,6 +1050,15 @@ def build_pi_mcp_config_payload(original: str, servers: tuple[McpServerConfig, .
     for server in servers:
         current[server.name] = _render_standard_mcp_server(server)
     data["mcpServers"] = current
+
+    current_settings = dict(data.get("settings", {})) if isinstance(data.get("settings"), dict) else {}
+    for key in previous_setting_keys:
+        current_settings.pop(key, None)
+    current_settings.update(settings)
+    if current_settings:
+        data["settings"] = current_settings
+    else:
+        data.pop("settings", None)
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -968,6 +1071,21 @@ def build_pi_models_payload(original: str, providers: dict[str, Any], previous_n
         current[name] = provider
     data["providers"] = current
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def build_pi_fallback_chains_payload(chains: dict[str, list[str]]) -> str:
+    # Fully managed: always written from config, never merged with existing content.
+    current: dict[str, list[str]] = {}
+    for name, models in chains.items():
+        current[name] = [str(model) for model in models]
+    return json.dumps(current, indent=2, ensure_ascii=False) + "\n"
+
+
+def build_pi_context_prune_settings_payload(settings: dict[str, Any]) -> str:
+    # Fully managed: always written from config, never merged with existing content.
+    current: dict[str, Any] = {}
+    current.update(settings)
+    return json.dumps(current, indent=2, ensure_ascii=False) + "\n"
 
 
 def build_opencode_config_payload(
@@ -1087,8 +1205,19 @@ def _parse_mcp_server(name: str, item: dict[str, Any], repo_root: Path) -> McpSe
         url=item.get("url"),
         headers={str(k): str(v) for k, v in item.get("headers", {}).items()} or None,
         tool_timeout_sec=int(item["toolTimeoutSec"]) if item.get("toolTimeoutSec") is not None else None,
+        direct_tools=_parse_direct_tools(item.get("directTools")),
         enabled=bool(item.get("enabled", True)),
     )
+
+
+def _parse_direct_tools(value: Any) -> bool | tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    raise SyncError("directTools must be a boolean or list of tool names")
 
 
 def _optional_path(value: Any, repo_root: Path | None = None) -> Path | None:
@@ -1162,6 +1291,8 @@ def _infer_legacy_skills_dir_from_candidates(previous_names: list[str], candidat
 
 def _render_source_server(server: McpServerConfig) -> dict[str, Any]:
     payload: dict[str, Any] = {"type": server.transport, "enabled": server.enabled}
+    if server.direct_tools is not None:
+        payload["directTools"] = list(server.direct_tools) if isinstance(server.direct_tools, tuple) else server.direct_tools
     if server.transport == "stdio":
         payload["command"] = _require_stdio_command(server)
         if server.args:
@@ -1256,12 +1387,16 @@ def _render_standard_mcp_server(server: McpServerConfig) -> dict[str, Any]:
             payload["cwd"] = server.cwd
         if server.env:
             payload["env"] = server.env
-        return payload
-    if not server.url:
-        raise SyncError(f"Missing url for remote server '{server.name}'")
-    payload = {"url": server.url}
-    if server.headers:
-        payload["headers"] = server.headers
+    else:
+        if not server.url:
+            raise SyncError(f"Missing url for remote server '{server.name}'")
+        payload = {"url": server.url}
+        if server.headers:
+            payload["headers"] = server.headers
+    if server.tool_timeout_sec is not None:
+        payload["toolTimeoutSec"] = server.tool_timeout_sec
+    if server.direct_tools is not None:
+        payload["directTools"] = list(server.direct_tools) if isinstance(server.direct_tools, tuple) else server.direct_tools
     return payload
 
 
@@ -1637,6 +1772,18 @@ def _normalize_string_list(data: Any) -> list[str]:
     if not isinstance(data, list):
         return []
     return [str(item) for item in data]
+
+
+def _parse_string_list_mapping(data: Any) -> dict[str, list[str]]:
+    if not isinstance(data, dict):
+        return {}
+    parsed: dict[str, list[str]] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            continue
+        if isinstance(value, (list, tuple)):
+            parsed[key] = [str(item) for item in value]
+    return parsed
 
 
 def _skill_manifest_path(target_dir: Path) -> Path:

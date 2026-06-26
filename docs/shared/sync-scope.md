@@ -20,6 +20,10 @@ Current shared set includes (illustrative, not exhaustive — the authoritative 
   - reason: the skill contains Codex CLI delegation mechanics and `codex exec` command shapes
   - location: `skills/codex/codex-subagent/`
   - sync policy: only the Codex target adds `skillRoots: [{"path": "${REPO_ROOT}/skills/codex"}]`
+- Pi only: repo skills under `skills/pi/`
+  - reason: these skills map shared workflows onto Pi-native capability surfaces
+  - location: `skills/pi/`
+  - sync policy: only the Pi target adds `skillRoots: [{"path": "${REPO_ROOT}/skills/pi"}]`
 
 ## MCP Servers
 
@@ -73,6 +77,10 @@ Pi-only managed packages remain target-specific:
 - `npm:pi-mcp-adapter`
 - `npm:@narumitw/pi-plan-mode`
 - `npm:pi-subagents`
-- `npm:pi-nano-context`
+- `npm:pi-goal`
+- `npm:pi-context-prune`
+- `npm:pi-context-usage`
+- `npm:pi-cache-graph`
+- `npm:pi-fallback-provider`
 
 These are not mirrored to other clients because they are Pi runtime extensions rather than portable shared skills.

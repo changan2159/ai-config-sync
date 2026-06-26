@@ -126,12 +126,21 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "mcpConfigPath": str(pi_mcp_config),
                 "skillsDir": str(tmp_path / "pi" / "skills"),
                 "packages": ["npm:pi-mcp-adapter"],
+                "mcpSettings": {"disableProxyTool": True},
                 "enableSkillCommands": True,
                 "globalPromptPath": str(pi_prompt),
                 "globalPromptAppendPath": str(pi_overlay),
             },
         },
-        servers={"demo": {"type": "stdio", "command": "/bin/echo", "args": ["hello"]}},
+        servers={
+            "demo": {
+                "type": "stdio",
+                "command": "/bin/echo",
+                "args": ["hello"],
+                "toolTimeoutSec": 30,
+                "directTools": True,
+            }
+        },
         global_prompt_path=str(shared_prompt),
     )
 
@@ -154,6 +163,9 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
     assert pi_mcp_data["mcpServers"]["manual"] == {"command": "/bin/true"}
     assert pi_mcp_data["mcpServers"]["demo"]["command"] == "/bin/echo"
     assert pi_mcp_data["mcpServers"]["demo"]["args"] == ["hello"]
+    assert pi_mcp_data["mcpServers"]["demo"]["toolTimeoutSec"] == 30
+    assert pi_mcp_data["mcpServers"]["demo"]["directTools"] is True
+    assert pi_mcp_data["settings"] == {"disableProxyTool": True}
     assert result["targets"]["codex"]["global_prompt_path"] == str(codex_prompt)
     assert result["targets"]["codex"]["global_prompt_append_path"] == str(codex_overlay)
     assert result["targets"]["claude"]["global_prompt_path"] == str(claude_prompt)
@@ -192,6 +204,7 @@ def test_sync_clients_updates_targets_and_removes_old_entries(tmp_path: Path) ->
                 "mcpConfigPath": str(pi_mcp_config),
                 "skillsDir": str(tmp_path / "pi" / "skills"),
                 "packages": ["npm:pi-mcp-adapter"],
+                "mcpSettings": {"disableProxyTool": True},
                 "enableSkillCommands": True,
                 "globalPromptPath": str(pi_prompt),
                 "globalPromptAppendPath": str(pi_overlay),
@@ -261,8 +274,8 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
                 "mcpConfigPath": str(pi_mcp_config),
                 "skillsDir": str(tmp_path / "pi" / "skills"),
                 "packages": ["npm:pi-mcp-adapter"],
-                "defaultProvider": "chris",
-                "defaultModel": "gpt-5.4",
+                "defaultProvider": "fallback",
+                "defaultModel": "default",
                 "enableSkillCommands": True,
                 "providers": {
                     "chris": {
@@ -292,8 +305,8 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
 
     pi_settings_data = json.loads(pi_settings.read_text(encoding="utf-8"))
     assert pi_settings_data["theme"] == "light"
-    assert pi_settings_data["defaultProvider"] == "chris"
-    assert pi_settings_data["defaultModel"] == "gpt-5.4"
+    assert pi_settings_data["defaultProvider"] == "fallback"
+    assert pi_settings_data["defaultModel"] == "default"
     assert pi_settings_data["enableSkillCommands"] is True
     assert pi_settings_data["packages"] == ["npm:pi-mcp-adapter"]
 
@@ -305,8 +318,8 @@ def test_sync_clients_manages_pi_models_and_defaults(tmp_path: Path) -> None:
 
     assert result["targets"]["pi"]["models_path"] == str(pi_models)
     assert result["targets"]["pi"]["providers"] == ["chris"]
-    assert result["targets"]["pi"]["default_provider"] == "chris"
-    assert result["targets"]["pi"]["default_model"] == "gpt-5.4"
+    assert result["targets"]["pi"]["default_provider"] == "fallback"
+    assert result["targets"]["pi"]["default_model"] == "default"
 
     write_config(config_path, skill_roots=[{"path": str(root)}], targets={}, servers={})
     sync_clients(load_sync_config(config_path), state_path)
@@ -367,6 +380,124 @@ def test_sync_clients_runs_managed_pi_package_sync(tmp_path: Path, monkeypatch: 
         "removed": [],
         "installed_package_names": ["pi-subagents"],
     }
+
+
+def test_sync_clients_installs_pi_packages_before_switching_to_fallback_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "skills"
+    write_skill(root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    pi_settings = tmp_path / "pi" / "agent" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+    order: list[str] = []
+
+    def fake_sync_pi_packages(
+        *,
+        settings_path: Path,
+        packages: tuple[str, ...],
+        previous_packages: list[str],
+    ) -> dict[str, object]:
+        del settings_path, packages, previous_packages
+        order.append("packages")
+        return {"installed": [], "removed": [], "installed_package_names": ["pi-fallback-provider"]}
+
+    def fake_atomic_write_text(path: Path, content: str) -> None:
+        if path == pi_settings:
+            payload = json.loads(content)
+            if payload.get("defaultProvider") == "fallback":
+                order.append("settings")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(sync_module, "sync_pi_packages", fake_sync_pi_packages)
+    monkeypatch.setattr(sync_module, "_atomic_write_text", fake_atomic_write_text)
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(root)}],
+        targets={
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "packages": ["npm:pi-fallback-provider"],
+                "defaultProvider": "fallback",
+                "defaultModel": "default",
+                "fallbackChains": {"default": ["openai/gpt-5.4"]},
+            },
+        },
+        servers={},
+    )
+
+    sync_clients(load_sync_config(config_path), state_path)
+
+    assert order == ["packages", "settings"]
+
+
+def test_sync_clients_manages_pi_extension_config_files(tmp_path: Path) -> None:
+    root = tmp_path / "skills"
+    write_skill(root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    pi_settings = tmp_path / "pi" / "agent" / "settings.json"
+    pi_mcp_config = tmp_path / "pi-mcp" / "mcp.json"
+    pi_models = tmp_path / "pi" / "agent" / "models.json"
+    fallback_chains = tmp_path / "pi" / "fallback-chains.json"
+    context_prune_settings = tmp_path / "pi" / "agent" / "context-prune" / "settings.json"
+    pi_settings.parent.mkdir(parents=True)
+    pi_mcp_config.parent.mkdir(parents=True)
+    pi_settings.write_text("{}\n", encoding="utf-8")
+    pi_mcp_config.write_text("{}\n", encoding="utf-8")
+    pi_models.write_text("{}\n", encoding="utf-8")
+    fallback_chains.write_text(json.dumps({"old": ["openai/old"]}) + "\n", encoding="utf-8")
+    context_prune_settings.parent.mkdir(parents=True, exist_ok=True)
+    context_prune_settings.write_text(json.dumps({"enabled": False, "oldFlag": True}) + "\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(root)}],
+        targets={
+            "pi": {
+                "settingsPath": str(pi_settings),
+                "mcpConfigPath": str(pi_mcp_config),
+                "modelsPath": str(pi_models),
+                "skillsDir": str(tmp_path / "pi" / "skills"),
+                "fallbackChainsPath": str(fallback_chains),
+                "contextPruneSettingsPath": str(context_prune_settings),
+                "packages": ["npm:pi-mcp-adapter", "npm:pi-goal"],
+                "fallbackChains": {"default": ["openai/gpt-5.4"]},
+                "contextPruneSettings": {"enabled": True, "pruneOn": "agent-message"},
+            },
+        },
+        servers={},
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    assert json.loads(fallback_chains.read_text(encoding="utf-8")) == {"default": ["openai/gpt-5.4"]}
+    assert json.loads(context_prune_settings.read_text(encoding="utf-8")) == {
+        "enabled": True,
+        "pruneOn": "agent-message",
+    }
+    assert json.loads(pi_settings.read_text(encoding="utf-8")) == {
+        "packages": ["npm:pi-mcp-adapter", "npm:pi-goal"],
+        "skills": [str(tmp_path / "pi" / "skills")],
+    }
+    assert result["targets"]["pi"]["fallback_chains"] == ["default"]
+    assert result["targets"]["pi"]["context_prune_setting_keys"] == ["enabled", "pruneOn"]
+
+    write_config(config_path, skill_roots=[{"path": str(root)}], targets={}, servers={})
+    sync_clients(load_sync_config(config_path), state_path)
+
+    assert not fallback_chains.exists()
+    assert not context_prune_settings.exists()
 
 
 def test_sync_clients_uninstalls_managed_pi_packages_when_pi_target_is_removed(
@@ -475,6 +606,43 @@ def test_compute_fingerprint_changes_when_target_overlay_changes(tmp_path: Path)
     assert after != before
 
 
+def test_compute_fingerprint_changes_when_managed_mcp_runtime_source_changes(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    config_path = repo_root / "shared-ai-config.json"
+    config_path.write_text('{"mcpServers":{},"skillRoots":[],"include":["*"],"targets":{}}\n', encoding="utf-8")
+
+    runtime_files = (
+        "toolchain.lock.json",
+        "tools/mcp/shared/common.sh",
+        "tools/mcp/shared/serena-manager.sh",
+        "tools/mcp/shared/serena-agent.sh",
+        "tools/mcp/shared/fetch.sh",
+        "tools/mcp/shared/codegraph.sh",
+        "tools/mcp/shared/node-repl-linux.sh",
+        "vendor/mcp/serena-agent/requirements.lock",
+        "vendor/mcp/serena-agent/runner.py",
+        "vendor/mcp/fetch/requirements.lock",
+        "vendor/mcp/codegraph/package-lock.json",
+        "vendor/mcp/node-repl-linux/package-lock.json",
+        "vendor/mcp/serena-manager/pyproject.toml",
+        "vendor/mcp/serena-manager/uv.lock",
+        "vendor/mcp/serena-manager/src/serena_manager/launcher.py",
+    )
+    for relative in runtime_files:
+        path = repo_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("v1\n", encoding="utf-8")
+
+    before = compute_fingerprint(config_path)
+    (repo_root / "vendor" / "mcp" / "serena-manager" / "src" / "serena_manager" / "launcher.py").write_text(
+        "v2\n",
+        encoding="utf-8",
+    )
+    after = compute_fingerprint(config_path)
+
+    assert after != before
+
+
 def test_add_remove_mcp_server_updates_source_config(tmp_path: Path) -> None:
     config_path = tmp_path / "shared-ai-config.json"
     config_path.write_text('{"mcpServers":{},"skillRoots":[],"include":["*"],"targets":{}}\n', encoding="utf-8")
@@ -556,7 +724,14 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
                 "settingsPath": "${HOME}/.pi/agent/settings.json",
                 "mcpConfigPath": "${HOME}/.config/mcp/mcp.json",
                 "skillsDir": "${HOME}/.pi/agent/skills-shared",
-                "packages": ["npm:pi-mcp-adapter"],
+                "skillRoots": [{"path": "${REPO_ROOT}/skills/pi"}],
+                "fallbackChainsPath": "${HOME}/.pi/fallback-chains.json",
+                "contextPruneSettingsPath": "${HOME}/.pi/agent/context-prune/settings.json",
+                "packages": ["npm:pi-mcp-adapter", "npm:pi-goal"],
+                "fallbackChains": {"default": ["openai/gpt-5.4"]},
+                "contextPruneSettings": {"enabled": True, "pruneOn": "agent-message"},
+                "defaultProvider": "fallback",
+                "defaultModel": "default",
                 "enableSkillCommands": True,
                 "globalPromptPath": "${HOME}/.pi/agent/AGENTS.md",
                 "globalPromptAppendPath": "${REPO_ROOT}/prompts/pi-global-prompt.md",
@@ -579,7 +754,14 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
     assert config.pi.settings_path == home / ".pi" / "agent" / "settings.json"
     assert config.pi.mcp_config_path == home / ".config" / "mcp" / "mcp.json"
     assert config.pi.skills_dir == home / ".pi" / "agent" / "skills-shared"
-    assert config.pi.packages == ("npm:pi-mcp-adapter",)
+    assert config.pi.fallback_chains_path == home / ".pi" / "fallback-chains.json"
+    assert config.pi.context_prune_settings_path == home / ".pi" / "agent" / "context-prune" / "settings.json"
+    assert config.pi.skill_roots == (
+        sync_module.SkillRootConfig(path=repo_root / "skills" / "pi", prefix="", exclude=()),
+    )
+    assert config.pi.packages == ("npm:pi-mcp-adapter", "npm:pi-goal")
+    assert config.pi.fallback_chains == {"default": ["openai/gpt-5.4"]}
+    assert config.pi.context_prune_settings == {"enabled": True, "pruneOn": "agent-message"}
     assert config.pi.enable_skill_commands is True
     assert config.pi.global_prompt_append_path == repo_root / "prompts" / "pi-global-prompt.md"
 
@@ -598,12 +780,35 @@ def test_repo_shared_config_includes_expected_managed_pi_packages() -> None:
     assert config.claude is not None
     assert config.opencode is not None
     assert config.pi is not None
+    assert config.pi.skill_roots == (
+        sync_module.SkillRootConfig(path=repo_root / "skills" / "pi", prefix="", exclude=()),
+    )
     assert config.pi.packages == (
         "npm:pi-mcp-adapter",
         "npm:@narumitw/pi-plan-mode",
         "npm:pi-subagents",
-        "npm:pi-nano-context",
+        "npm:pi-goal",
+        "npm:pi-context-prune",
+        "npm:pi-context-usage",
+        "npm:pi-cache-graph",
+        "npm:pi-fallback-provider",
     )
+    assert config.pi.mcp_settings == {"disableProxyTool": True}
+    assert config.pi.fallback_chains == {
+        "default": ["openai/gpt-5.4"],
+        "review": ["openai/gpt-5.4"],
+    }
+    assert config.pi.context_prune_settings == {
+        "enabled": True,
+        "showPruneStatusLine": True,
+        "summarizerModel": "default",
+        "summarizerThinking": "minimal",
+        "pruneOn": "agent-message",
+        "remindUnprunedCount": True,
+        "batchingMode": "turn",
+    }
+    assert config.pi.default_provider == "fallback"
+    assert config.pi.default_model == "default"
     assert config.pi.enable_skill_commands is True
 
 
@@ -1036,6 +1241,7 @@ def test_watch_loop_recovers_from_sync_errors(monkeypatch, capsys, tmp_path: Pat
         return object()
 
     monkeypatch.setattr(sync_module, "load_sync_config", fake_load)
+    monkeypatch.setattr("ai_config_sync.mcp_runtime.preflight_mcp", lambda repo_root: {"runtime": {"serena-agent": {"prepared": True}}})
     monkeypatch.setattr(sync_module, "sync_clients", lambda config, state_path: {"status": "ok"})
 
     def fake_sleep(_: float) -> None:
@@ -1556,6 +1762,7 @@ def test_cli_mcp_add_rolls_back_config_when_sync_fails(tmp_path: Path, monkeypat
         "sync_clients",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(SyncError("boom")),
     )
+    monkeypatch.setattr(cli_module, "preflight_mcp", lambda repo_root: {"runtime": {}})
     monkeypatch.setattr(
         cli_module,
         "default_paths",
@@ -1587,6 +1794,7 @@ def test_cli_mcp_add_rolls_back_config_when_sync_fails(tmp_path: Path, monkeypat
 
 
 def test_cli_run_config_update_rolls_back_target_writes_when_sync_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = tmp_path
     config_path = tmp_path / "shared-ai-config.json"
     target_path = tmp_path / "codex" / "config.toml"
     target_path.parent.mkdir(parents=True)
@@ -1613,6 +1821,7 @@ def test_cli_run_config_update_rolls_back_target_writes_when_sync_fails(tmp_path
 
     class FakePaths:
         def __init__(self) -> None:
+            self.repo_root = repo_root
             self.config_path = config_path
             self.state_path = tmp_path / "state" / "sync-state.json"
 
@@ -1627,6 +1836,7 @@ def test_cli_run_config_update_rolls_back_target_writes_when_sync_fails(tmp_path
         target_path.write_text('command = "/bin/echo"\n', encoding="utf-8")
         raise SyncError("boom")
 
+    monkeypatch.setattr(cli_module, "preflight_mcp", lambda repo_root: {"runtime": {}})
     monkeypatch.setattr(cli_module, "sync_clients", fake_sync_clients)
 
     with pytest.raises(SyncError, match="boom"):
@@ -1640,6 +1850,7 @@ def test_cli_run_config_update_rolls_back_pi_package_manifest_when_sync_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    repo_root = tmp_path
     config_path = tmp_path / "shared-ai-config.json"
     target_path = tmp_path / "codex" / "config.toml"
     pi_settings = tmp_path / "pi" / "settings.json"
@@ -1690,6 +1901,7 @@ def test_cli_run_config_update_rolls_back_pi_package_manifest_when_sync_fails(
 
     class FakePaths:
         def __init__(self) -> None:
+            self.repo_root = repo_root
             self.config_path = config_path
             self.state_path = tmp_path / "state" / "sync-state.json"
 
@@ -1718,6 +1930,7 @@ def test_cli_run_config_update_rolls_back_pi_package_manifest_when_sync_fails(
         )
         raise SyncError("boom")
 
+    monkeypatch.setattr(cli_module, "preflight_mcp", lambda repo_root: {"runtime": {}})
     monkeypatch.setattr(cli_module, "sync_clients", fake_sync_clients)
 
     with pytest.raises(SyncError, match="boom"):
@@ -1726,6 +1939,92 @@ def test_cli_run_config_update_rolls_back_pi_package_manifest_when_sync_fails(
     assert '"demo"' not in config_path.read_text(encoding="utf-8")
     assert target_path.read_text(encoding="utf-8") == 'model = "gpt-5"\n'
     assert pi_package_json.read_text(encoding="utf-8") == original_package_manifest
+
+
+def test_cli_run_config_update_rolls_back_preflight_outputs_when_sync_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path
+    config_path = tmp_path / "shared-ai-config.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {}, "skillRoots": [], "include": ["*"], "targets": {}}) + "\n",
+        encoding="utf-8",
+    )
+    runtime_env = repo_root / "vendor" / "toolchain" / "runtime-env.sh"
+    serena_venv = repo_root / "vendor" / "mcp" / "serena-agent" / ".venv"
+
+    class FakePaths:
+        def __init__(self) -> None:
+            self.repo_root = repo_root
+            self.config_path = config_path
+            self.state_path = tmp_path / "state" / "sync-state.json"
+
+    def fake_update(path: Path) -> dict[str, str]:
+        return {"updated": str(path)}
+
+    def fake_preflight(_: Path) -> dict[str, object]:
+        runtime_env.parent.mkdir(parents=True, exist_ok=True)
+        runtime_env.write_text("export AI_CONFIG_SYNC_TOOLCHAIN_BOOTSTRAP_VERSION=3\n", encoding="utf-8")
+        (serena_venv / "bin").mkdir(parents=True, exist_ok=True)
+        (serena_venv / "bin" / "python").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        return {"toolchain": {"runtime_env": str(runtime_env)}, "runtime": {"serena-agent": {"prepared": True}}}
+
+    def fake_sync_clients(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise SyncError("boom")
+
+    monkeypatch.setattr(cli_module, "preflight_mcp", fake_preflight)
+    monkeypatch.setattr(cli_module, "sync_clients", fake_sync_clients)
+
+    with pytest.raises(SyncError, match="boom"):
+        cli_module._run_config_update(FakePaths(), fake_update)
+
+    assert not runtime_env.exists()
+    assert not serena_venv.exists()
+
+
+def test_cli_run_config_update_restores_existing_preflight_outputs_when_sync_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = tmp_path
+    config_path = tmp_path / "shared-ai-config.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {}, "skillRoots": [], "include": ["*"], "targets": {}}) + "\n",
+        encoding="utf-8",
+    )
+    runtime_env = repo_root / "vendor" / "toolchain" / "runtime-env.sh"
+    serena_python = repo_root / "vendor" / "mcp" / "serena-agent" / ".venv" / "bin" / "python"
+    runtime_env.parent.mkdir(parents=True, exist_ok=True)
+    runtime_env.write_text("old-runtime\n", encoding="utf-8")
+    serena_python.parent.mkdir(parents=True, exist_ok=True)
+    serena_python.write_text("old-python\n", encoding="utf-8")
+
+    class FakePaths:
+        def __init__(self) -> None:
+            self.repo_root = repo_root
+            self.config_path = config_path
+            self.state_path = tmp_path / "state" / "sync-state.json"
+
+    def fake_update(path: Path) -> dict[str, str]:
+        return {"updated": str(path)}
+
+    def fake_preflight(_: Path) -> dict[str, object]:
+        runtime_env.write_text("new-runtime\n", encoding="utf-8")
+        serena_python.write_text("new-python\n", encoding="utf-8")
+        return {"toolchain": {"runtime_env": str(runtime_env)}, "runtime": {"serena-agent": {"prepared": True}}}
+
+    def fake_sync_clients(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise SyncError("boom")
+
+    monkeypatch.setattr(cli_module, "preflight_mcp", fake_preflight)
+    monkeypatch.setattr(cli_module, "sync_clients", fake_sync_clients)
+
+    with pytest.raises(SyncError, match="boom"):
+        cli_module._run_config_update(FakePaths(), fake_update)
+
+    assert runtime_env.read_text(encoding="utf-8") == "old-runtime\n"
+    assert serena_python.read_text(encoding="utf-8") == "old-python\n"
 
 
 def test_update_codegraph_pins_exact_version_and_refreshes_lock(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2097,6 +2396,127 @@ def test_cli_pi_web_install_prints_result(tmp_path: Path, monkeypatch: pytest.Mo
     cli_module.main()
 
     assert json.loads(capsys.readouterr().out) == {"version": "v1.21.2"}
+
+
+def test_cli_pi_install_prints_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(cli_module, "install_pi", lambda version=None: {"version": version or "0.73.0"})
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "pi-install"])
+
+    cli_module.main()
+
+    assert json.loads(capsys.readouterr().out) == {"version": "0.73.0"}
+
+
+def test_cli_sync_once_runs_preflight_before_sync(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    config_path = repo_root / "shared-ai-config.json"
+    state_path = repo_root / "state" / "sync-state.json"
+    observed: list[str] = []
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(
+        cli_module,
+        "default_paths",
+        lambda repo_root, config_override=None: SyncPaths(
+            repo_root=repo_root,
+            config_path=config_override or config_path,
+            state_path=state_path,
+            service_path=repo_root / "service",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "preflight_mcp",
+        lambda repo_root: observed.append("preflight_mcp") or {"runtime": {"serena-agent": {"prepared": True}}},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "load_sync_config",
+        lambda path: observed.append(f"load_sync_config:{path}") or object(),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "sync_clients",
+        lambda config, state: observed.append(f"sync_clients:{state}") or {"targets": {"pi": {"ok": True}}},
+    )
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "sync-once"])
+
+    cli_module.main()
+
+    assert observed == [
+        "preflight_mcp",
+        f"load_sync_config:{config_path}",
+        f"sync_clients:{state_path}",
+    ]
+    assert json.loads(capsys.readouterr().out) == {"targets": {"pi": {"ok": True}}}
+
+
+def test_cli_pi_bootstrap_runs_install_preflight_and_sync(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    config_path = repo_root / "shared-ai-config.json"
+    state_path = repo_root / "state" / "sync-state.json"
+    observed: list[str] = []
+
+    monkeypatch.setattr(cli_module, "_resolve_repo_root", lambda *_args: repo_root)
+    monkeypatch.setattr(
+        cli_module,
+        "default_paths",
+        lambda repo_root, config_override=None: SyncPaths(
+            repo_root=repo_root,
+            config_path=config_override or config_path,
+            state_path=state_path,
+            service_path=repo_root / "service",
+        ),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "install_pi",
+        lambda version=None: observed.append("install_pi") or {"version": version or "0.73.0"},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "preflight_mcp",
+        lambda repo_root: observed.append("preflight_mcp") or {"toolchain": {"python": "ok"}, "runtime": {}},
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "load_sync_config",
+        lambda path: observed.append(f"load_sync_config:{path}") or object(),
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "sync_clients",
+        lambda config, state: observed.append(f"sync_clients:{state}") or {"targets": {"pi": {"ok": True}}},
+    )
+    monkeypatch.setattr(cli_module.sys, "argv", ["ai-config-sync", "pi-bootstrap"])
+
+    cli_module.main()
+
+    assert observed == [
+        "install_pi",
+        "preflight_mcp",
+        f"load_sync_config:{config_path}",
+        f"sync_clients:{state_path}",
+    ]
+    assert json.loads(capsys.readouterr().out) == {
+        "pi_install": {"version": "0.73.0"},
+        "mcp_preflight": {"toolchain": {"python": "ok"}, "runtime": {}},
+        "sync": {"targets": {"pi": {"ok": True}}},
+    }
 
 
 def test_cli_pi_web_service_start_prints_result(

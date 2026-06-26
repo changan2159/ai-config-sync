@@ -138,12 +138,19 @@ Add or remove one MCP across all four clients:
 .venv/bin/python -m ai_config_sync.cli mcp-remove fetch
 ```
 
-Install Pi itself; managed Pi packages are installed during sync:
+Bootstrap Pi in a fresh environment; this installs Pi itself, prepares repo-local MCP runtimes, and syncs managed Pi plugins/config in one pass:
 
 ```bash
-npm install -g --ignore-scripts --prefix "$HOME/.local" @earendil-works/pi-coding-agent
-.venv/bin/python -m ai_config_sync.cli sync-once
+.venv/bin/python -m ai_config_sync.cli pi-bootstrap
 pi --version
+```
+
+Install or update only the Pi CLI runtime:
+
+```bash
+.venv/bin/python -m ai_config_sync.cli pi-install
+.venv/bin/python -m ai_config_sync.cli pi-install --version 0.73.0
+.venv/bin/python -m ai_config_sync.cli pi-status
 ```
 
 Update vendored MCPs:
@@ -228,7 +235,8 @@ Script entrypoints:
 - Plugin cache skills are not synced by default
 - Shared skill sync mirrors direct child skills under repo-local `skills/shared/`; client-specific repo skills live under `skills/<client>/` and are attached only from that target's `skillRoots`
 - OpenCode skills are rendered as `agent` entries from the same `SKILL.md` sources; OpenCode has no file-system `skillsDir` — skills are distributed as config entries rather than synced directories, so the `opencode` target intentionally omits `skillsDir`
-- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, `~/.pi/agent/settings.json` keeps that directory plus the managed Pi packages (`npm:pi-mcp-adapter`, `npm:@narumitw/pi-plan-mode`, `npm:pi-subagents`, `npm:pi-nano-context`) registered, sync also installs or removes those packages under `/home/admin101/.pi/agent/npm`, sync manages `enableSkillCommands: true` so `/skill:<name>` stays available, and Pi model defaults/providers can be synced into `~/.pi/agent/settings.json` and `~/.pi/agent/models.json`
+- Pi skills are symlinked into `/home/admin101/.pi/agent/skills-shared`, Pi-only repo skills are sourced from `skills/pi/`, `~/.pi/agent/settings.json` keeps those directories plus the managed Pi packages (`npm:pi-mcp-adapter`, `npm:@narumitw/pi-plan-mode`, `npm:pi-subagents`, `npm:pi-goal`, `npm:pi-context-prune`, `npm:pi-context-usage`, `npm:pi-cache-graph`, `npm:pi-fallback-provider`) registered, sync also installs or removes those packages under `/home/admin101/.pi/agent/npm`, sync manages `enableSkillCommands: true` so `/skill:<name>` stays available, shared `fetch`/`serena`/`codegraph`/`node_repl` MCP servers are exposed to Pi as direct tools, and Pi model defaults/providers can be synced into `~/.pi/agent/settings.json`, `~/.pi/agent/models.json`, `~/.pi/fallback-chains.json`, and `~/.pi/agent/context-prune/settings.json`
+- Pi defaults are configured to start on `fallback/default`, and sync now writes fallback runtime files before switching the default provider so startup does not see a half-applied fallback state
 - Shared MCP servers belong in top-level `mcpServers` and should point at `tools/mcp/shared/`; client-specific repo MCP wrappers should live under `tools/mcp/<client>/` and be declared in that target's `mcpServers`
 - Managed OpenCode runtime installs live under `/home/admin101/.local/share/ai-config-sync/opencode/releases/<version>` as official release binaries instead of `/usr/local/lib/node_modules`
 - `/home/admin101/.local/bin/opencode` is a managed wrapper that probes `current` first and falls back to the previous healthy release if the current one is broken
@@ -246,6 +254,7 @@ Script entrypoints:
 - `codegraph` is pinned to an exact npm version in `vendor/mcp/codegraph/package.json`; version bumps should happen through the update command or script so the lockfile stays in sync
 - Runtime wrappers under `tools/mcp/shared/` and `tools/mcp/<client>/` no longer self-heal with host `uv` / `npm` / `node`; they read repo-local toolchain paths from `vendor/toolchain/runtime-env.sh` and fail fast if preflight has not prepared the repo-local runtime
 - `mcp-preflight` downloads the pinned repo-local toolchain from `toolchain.lock.json`, prepares managed Python/Node paths under `vendor/toolchain/`, and rebuilds stale vendored MCP runtimes before any CLI launches them
+- `sync-once` and watch-mode resyncs now run `mcp-preflight` before writing managed outputs, so Serena and the other repo-local MCP runtimes get refreshed automatically when their managed source inputs drift
 - If a repo-local MCP runtime is missing or cannot bootstrap, sync fails fast instead of falling back to a user-home installation
 - Codex sync currently supports only `stdio` MCP servers; remote MCP entries in the shared source will fail fast when a Codex target is enabled
 - OpenCode keeps unrelated JSONC content and comments, but the managed `mcp` and `agent` sections are rewritten on sync
@@ -262,14 +271,17 @@ Script entrypoints:
 - top-level `globalPromptPath`: the shared source file to copy, typically `prompts/shared-global-prompt.md`
 - top-level `skillRoots`: shared skill roots synced to every managed target, typically `skills/shared`
 - per-target `skillRoots`: target-only skill roots such as `skills/codex`
-- top-level `mcpServers`: shared MCP servers synced to every managed target, typically backed by `tools/mcp/shared`
+- top-level `mcpServers`: shared MCP servers synced to every managed target, typically backed by `tools/mcp/shared`; Pi also honors adapter-specific fields such as `directTools` and `toolTimeoutSec` when writing the standard MCP config
+- Pi target `mcpSettings`: optional managed top-level Pi MCP adapter settings such as `disableProxyTool`
 - per-target `mcpServers`: target-only MCP servers, typically backed by wrappers under `tools/mcp/<client>/`
 - per-target `globalPromptPath`: the destination file for that client
 - per-target `globalPromptAppendPath`: optional client-specific content appended after the shared core with a blank line separator, typically under `prompts/`
-- Pi target `defaultProvider` / `defaultModel`: optional default model selection written into `settings.json`
+- Pi target `defaultProvider` / `defaultModel`: optional default model selection written into `settings.json`; this repo currently uses `fallback/default`
 - Pi target `enableSkillCommands`: optional managed toggle written into `settings.json`
 - Pi target `modelsPath`: optional `models.json` destination; defaults to a sibling `models.json` next to `settings.json`
 - Pi target `providers`: optional managed `models.json` provider definitions merged by provider name without deleting unrelated manual providers
+- Pi target `fallbackChainsPath` / `fallbackChains`: optional fallback provider chain file and managed chains written by name
+- Pi target `contextPruneSettingsPath` / `contextPruneSettings`: optional `pi-context-prune` settings file and managed key/value payload
 
 If a target has no prompt destination, prompt sync is skipped for that target while MCP and skill sync continue.
 If the shared core is omitted but a target defines both `globalPromptPath` and `globalPromptAppendPath`, the target prompt is generated from that overlay alone.

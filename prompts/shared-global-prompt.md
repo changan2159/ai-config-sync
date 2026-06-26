@@ -102,6 +102,7 @@
 - For bug reports, failing tests, build breaks, or reproduced-but-unexplained behavior, prefer `systematic-debugging`.
 - For production behavior changes where tests are practical, prefer `test-driven-development`.
 - For finding implementation locations, related files, call chains, or project structure, prefer `fast-codebase-retrieval`; pair with `serena-workflow` when symbol confirmation or cross-file ownership matters.
+- When both CodeGraph and Serena are available, default retrieval order is: CodeGraph first for fast candidate discovery and impact-set narrowing, Serena second for symbol-confirmed ownership, references, implementations, and memory-backed project context, then plain text search for strings, config keys, SQL, logs, and other non-symbol-driven behavior.
 - For non-trivial brownfield work in symbol-friendly languages (C#, TypeScript, Java, Python, Go), prefer `serena-workflow` to anchor navigation before broad text-only exploration.
 - For C# or .NET-specific symbol tracing, call-chain inspection, and type navigation, prefer `csharp-symbolic-workflow` over generic text search or broad Serena queries.
 - For Java or Spring Boot development (feature work, debugging, schema changes, security, testing, dependency management), prefer `java-spring-workflow` to stay on correct Spring Boot 3 patterns and avoid Boot 2 regressions; pair with `serena-workflow` for brownfield symbol tracing.
