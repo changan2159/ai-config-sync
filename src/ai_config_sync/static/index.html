@@ -686,7 +686,7 @@ function renderTools(tools){
     const rDot=runtime==='active'?'active':runtime==='inactive'?'inactive':'unknown';
     const sDot=t.service_status==='active'?'active':t.service_status==='inactive'?'inactive':'unknown';
     const rPill=`<span class="status-pill"><span class="dot ${rDot}"></span>运行</span>`;
-    const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>Web</span>`:'';
+    const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>${t.key==='paseo'?'守护':'Web'}</span>`:'';
     const current=t.installed||'未安装';
     const verInfo=current==='未安装'
       ?`<span class="subtle" style="font-size:12px">未安装</span>`
@@ -1338,7 +1338,7 @@ function renderToolDetail(t){
   const rDot=runtime==='active'?'active':runtime==='inactive'?'inactive':'unknown';
   const sDot=t.service_status==='active'?'active':t.service_status==='inactive'?'inactive':'unknown';
   const rPill=`<span class="status-pill"><span class="dot ${rDot}"></span>运行</span>`;
-  const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>Web</span>`:'';
+  const sPill=t.service_manageable?`<span class="status-pill"><span class="dot ${sDot}"></span>${t.key==='paseo'?'守护':'Web'}</span>`:'';
   const btns=[];
   if(t.web_url&&(t.service_status==='active'||runtime==='active'))btns.push(renderOpenButton(t.web_url,'打开 Web'));
   if(!t.installed)btns.push(`<button class="btn primary sm" onclick="install('${t.key}');closeToolModal()">安装</button>`);
