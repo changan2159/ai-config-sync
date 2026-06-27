@@ -11,7 +11,8 @@ Anything placed there is considered cross-client and is synced to every target t
 
 Current shared set includes (illustrative, not exhaustive — the authoritative list is the set of directories under `skills/shared/`):
 
-- retrieval, planning, review, maintainability, debugging, frontend, accessibility, performance, release, database, document, and architecture skills
+- retrieval, planning, review, maintainability, optimization, debugging, frontend, accessibility, performance, release, database, document, and architecture skills
+- shared Paseo orchestration skills: `paseo`, `paseo-handoff`, `paseo-advisor`, `paseo-loop`, `paseo-committee`
 - framework- or domain-specific skills such as `aspnet-core`, `csharp-symbolic-workflow`, and `mcp-builder`
 
 ### Target-Specific Skills

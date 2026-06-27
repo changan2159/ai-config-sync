@@ -1,3 +1,5 @@
+## Durable repo and host rules
+
 - `cli.main()` must resolve the project `repo_root` from the invoked entrypoint path or current workspace markers, not from `__file__`, because the packaged console script may run from `.venv/bin` while the module lives under `site-packages`.
 - `sync_clients()` should preflight target config rendering before writing any managed target files, and target-removal cleanup depends on persisting target `config_path` / `skills_dir` in state so removed targets can have stale managed output cleaned on the next sync.
 - Invalid OpenCode JSONC should surface as `SyncError`, and leading comments containing braces are valid input that must not break top-level key updates.
@@ -21,3 +23,10 @@
 - Claude Code should use the native user-level install under `~/.local/bin/claude` and its built-in `claude update` / `claude install <version> --force` flow. Do not keep a parallel global npm `@anthropic-ai/claude-code` install on this host, because the native updater reports multi-install drift and the effective runtime should stay under `~/.local/share/claude/versions/`.
 - `pi-web` upstream resolves the `@earendil-works/pi-ai` OAuth helper through a brittle module-root probe. On this Linux host the user-level `pi` install lives under `~/.local/lib/node_modules/@earendil-works/pi-coding-agent`, so managed `pi-web` installs must provide a compatibility path under `~/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent` and should set `PI_AI_OAUTH_INDEX` in the systemd unit to the real `node_modules/@earendil-works/pi-ai/dist/utils/oauth/index.js` path.
 - The web dashboard should treat `claude` and `opencode` card activity as runtime-process detection first, not only `systemctl`, because this host commonly runs live CLI sessions without the matching managed service being active. The dashboard also needs the real Claude updater path `scripts/claude/update-claude.sh`, and `pi --version` may emit a bare semver string such as `0.80.2`, which the status parser must accept.
+
+## 2026-06-26 Shared Paseo orchestration skills
+
+- Added repo-managed shared skills under `skills/shared/`: `paseo`, `paseo-handoff`, `paseo-advisor`, `paseo-loop`, `paseo-committee`.
+- Purpose: provide the preferred cross-client orchestration layer when provider-backed multi-agent work is actually warranted and `paseo` is available, instead of relying on Desktop-only installed skills or ad hoc delegation prompts.
+- Routing policy: use `paseo-advisor` for read-only second opinions, `paseo-handoff` for bounded non-overlapping implementation or review slices, `paseo-loop` for worker/verifier retry loops with explicit stop conditions, and `paseo-committee` for hard planning or root-cause analysis needing two contrasting analyses.
+- Guardrail: do not use Paseo delegation for trivial tasks, unstable ownership boundaries, or overlapping writes; local validation comes first, and `code-review` remains the default second-pass review path before escalating to provider-contrast review.

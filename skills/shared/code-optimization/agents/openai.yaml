@@ -1,0 +1,7 @@
+interface:
+  display_name: "Code Optimization"
+  short_description: "Turn vague optimize or refactor requests into scoped, behavior-safe improvements"
+  default_prompt: "Use $code-optimization to classify the optimization axis, constrain scope, preserve behavior, and deliver the smallest high-leverage improvement with clear evidence."
+
+policy:
+  allow_implicit_invocation: true

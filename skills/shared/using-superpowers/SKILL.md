@@ -1,6 +1,6 @@
 ---
 name: using-superpowers
-description: Use at the start of a conversation to set the default operating style for skill usage. Prefer simple, surgical work, surface assumptions when they matter, and use other skills when the task clearly matches them.
+description: Use at the start of a conversation to set the default operating style for skill usage. Prefer simple, surgical work, surface assumptions when they matter, and use narrower skills when the task clearly fits them or they materially reduce error.
 ---
 
 <SUBAGENT-STOP>
@@ -18,32 +18,42 @@ Use this skill as the lightweight top-level policy for the rest of the session.
 3. Make narrow, task-traceable changes.
 4. Verify outcomes with concrete checks.
 
-## Skill Usage
+## Default Routing
 
 Use another skill when one of these is true:
-- The user explicitly names the skill.
-- The task clearly matches a specialized domain such as browser automation, framework-specific work, CI debugging, or OpenAI product guidance.
-- The user is asking about the current repository and the main need is to find where behavior lives, which files are related, how code paths connect, or what the smallest complete file set is; default to `fast-codebase-retrieval` before broader implementation work.
-- The task requires brownfield code understanding, dependency wiring, cross-file behavior tracing, or symbol-aware structure discovery; default to `serena-workflow` or a narrower Serena-based skill such as `csharp-symbolic-workflow`.
-- The task involves non-trivial code changes, refactoring, or review where reuse, abstraction boundaries, duplicate logic, or file maintainability matter; pair the domain skill with `code-maintainability`.
-- The task is risky enough that a structured workflow materially reduces mistakes.
 
-When Serena tooling is available for the active workspace, prefer Serena-backed navigation before broad text search or full-file reads for existing-code analysis. Do not wait for the user to ask for Serena explicitly.
+- the user explicitly names the skill
+- the task clearly matches a specialized domain or framework skill
+- the repository task is materially underspecified, terminology-heavy, or likely to drift without context alignment; use `clarify-with-repo-context`
+- the main need is repository retrieval, ownership discovery, or finding the smallest complete file set; use `fast-codebase-retrieval`
+- the task depends on definitions, references, implementations, call chains, or dependency wiring; use `serena-workflow` or a narrower Serena-based skill such as `csharp-symbolic-workflow`
+- the task is an unclear or mixed optimization, improvement, or refactor request; use `code-optimization`
+- the task involves non-trivial code changes or review where reuse, abstraction boundaries, duplicate logic, or file maintainability matter; pair the domain skill with `code-maintainability`
+- the main risk is brownfield ownership entropy, file bloat, shallow wrappers, or duplicated orchestration; add `architecture-deepening`
+- the task is product-style frontend implementation, redesign, polish, or responsive fixing; use `frontend-design` and pair with `frontend-ui-engineering` when component logic or shared UI patterns are substantial
+- the task is Java or Spring Boot feature work, debugging, schema changes, security, testing, or dependency management; use `java-spring-workflow`
+- the first problem is choosing a workflow shape for substantial multi-step work; use `project-orchestration`
+- the main decision is whether clearly independent workstreams are safe to split; use `parallel-execution`
+- provider-backed contrast or bounded advisory orchestration would materially reduce risk and `paseo` is available; use `paseo-advisor`, `paseo-committee`, `paseo-handoff`, or `paseo-loop` as appropriate
+- the task is clearly a phased migration or compatibility-sensitive refactor; use `large-refactor`
+- the issue is a failing build, test, or unclear behavior; use `systematic-debugging`
+- the user wants commit-message drafting or staged change review; use `git-commit`
+- the task is addressing GitHub PR review comments or fixing failing GitHub Actions checks; use `gh-address-comments` or `gh-fix-ci`
+- the user mainly wants a plan; use `writing-plans`
 
-Use this task-shape rule:
-
-- Default to `fast-codebase-retrieval` when the question is about the current repo and success depends on finding the right files before editing or explaining behavior.
-- Default to Serena-first when the task depends on definitions, references, implementations, call chains, dependency wiring, or cross-project impact.
-- Default to direct text search or targeted file inspection when the task is mainly about config keys, route fragments, SQL, logs, JSON or YAML fields, docs, templates, or a tiny edit in already-known files.
-- Start direct and escalate to Serena if the task stops being local and turns into structure tracing.
-- Do not force Serena onto trivial tasks where symbol-aware setup would cost more than it saves.
-
-For substantial multi-step work, prefer `project-orchestration` as the thin top-level router before invoking narrower skills.
-If the task may benefit from multiple roles or parallel waves, consider `parallel-execution` after choosing the orchestration path.
-If the task is obviously only a plan request, go straight to `writing-plans`. If it is obviously a phased migration or compatibility-sensitive refactor, go straight to `large-refactor`.
-If the problem is clearly a localized test-harness or validation setup mismatch, stay in direct execution or `systematic-debugging` instead of escalating prematurely.
+For tiny or string-driven work, stay direct: use targeted file inspection or text search for config keys, route fragments, SQL, logs, JSON or YAML fields, docs, templates, or tiny edits in already-known files. When Serena is available and the task is clearly brownfield structure work rather than a tiny local edit, prefer Serena-backed navigation proactively; escalate from direct search once the task stops being local and turns into structure tracing.
 
 Do not invoke skills by reflex for every message. If no specialized skill clearly helps, proceed directly.
+
+## Optimization Requests
+
+When the user asks to optimize, improve, or refactor code:
+
+- classify the primary axis as `maintainability`, `architecture`, `performance`, `reliability`, or `developer-experience`
+- if the axis would materially change the solution, clarify first; otherwise state the assumed axis briefly
+- if the axis is unclear or mixed, start with `code-optimization`; if it is already clearly maintainability-focused, go directly to `code-maintainability`
+- preserve external behavior unless the user explicitly asks for a behavior change
+- prefer the smallest high-leverage change instead of a broad rewrite
 
 ## Assumptions And Ambiguity
 
@@ -51,27 +61,16 @@ Do not invoke skills by reflex for every message. If no specialized skill clearl
 - If there are multiple plausible interpretations with materially different outcomes, ask or present the tradeoff.
 - If a simpler approach is better than the implied one, say so and use it unless the user objects.
 
-## Simplicity
+## Simplicity And Scope
 
 - Do not add abstractions, configuration, or features that were not requested.
 - Match the existing code and workflow unless there is a concrete reason to diverge.
-- If a long solution can be made much shorter without losing correctness, shorten it.
-
-## Reuse First
-
-- Run a quick reuse scan before adding a new component, function, method, helper, service, hook, endpoint, DTO, query, test fixture, public type, package, or top-level module.
-- Inspect nearby files, existing symbols, shared folders, framework built-ins, dependencies, and tests for similar behavior, call patterns, data mappings, validation rules, and established conventions.
-- Prefer extending or composing existing services, DTOs, serializers, UI primitives, hooks, utilities, test builders, and module contracts when they fit.
-- Keep touched files cohesive and scannable. If a change would add a second unrelated responsibility to a file, split or move the new code to the narrowest existing boundary.
-- Extract repeated calls or duplicated logic when the repeated code represents the same concept and is likely to change together; avoid broad abstractions for coincidental similarity.
-- Create a new abstraction only when reuse is clearly worse or incompatible; keep the reason visible in the implementation note or final response.
-- Apply a rule-of-three bias before introducing broad shared abstractions unless the existing architecture already requires one.
-
-## Surgical Changes
-
-- Touch only the files and lines needed for the request.
-- Clean up unused code only when your own change created it.
-- Mention unrelated issues you notice, but do not fix them unless asked.
+- Before adding new code, do a quick reuse scan for existing owners, helpers, fixtures, and framework features that already represent the concept.
+- Look first at nearby files, existing symbols, shared folders, tests, and framework built-ins before creating a new helper, component, service, hook, DTO, or module.
+- Prefer extending or composing an existing owner when it already represents the concept; create a new abstraction only when reuse would blur ownership, add awkward flags, or couple unrelated flows.
+- Extract repeated logic when it is the same concept and likely to change together; avoid broad shared abstractions for coincidental similarity.
+- Keep a rule-of-three bias before introducing broad shared abstractions unless the existing architecture already clearly requires one.
+- Touch only the files and lines needed for the request. Clean up unused code when your own change created it. Mention unrelated issues you notice, but do not fix them unless asked.
 
 ## Verification
 

@@ -10,6 +10,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 - Codex-only repo skills live under `skills/codex/` and are added through Codex target `skillRoots`.
 - Prefer the shared routing defaults in `prompts/shared-global-prompt.md` and the client-specific additions in `prompts/codex-global-prompt.md`.
 - When a narrower Codex-only capability is needed, follow the prompt overlay and native Codex tool surface for that session.
+- Shared Paseo orchestration skills: `paseo`, `paseo-handoff`, `paseo-advisor`, `paseo-loop`, `paseo-committee`.
 - Codex-only repo skill: `codex-subagent`
 
 ### Claude Code
@@ -17,6 +18,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 - Shared skills are synced into `~/.claude/skills`.
 - Claude Code exposes commands and skills from the `/` command menu.
 - Direct skill invocation uses `/<name>` after discovery from `/`.
+- Shared Paseo orchestration skills are available through the same `/` skill surface once synced.
 - Do not invent OpenCode-style `skill-<name>` aliases in Claude sessions.
 
 ### OpenCode
@@ -24,12 +26,14 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 - Shared skills are rendered into the OpenCode config as `agent` entries.
 - This repository manages the canonical invocation prefix through `targets.opencode.agentPrefix`.
 - Current canonical form is `skill-<name>`.
+- Shared Paseo orchestration skills therefore invoke as `skill-paseo`, `skill-paseo-handoff`, `skill-paseo-advisor`, `skill-paseo-loop`, and `skill-paseo-committee`.
 
 ### Pi
 
 - Shared skills are synced into `~/.pi/agent/skills-shared`.
 - Pi-only repo skills live under `skills/pi/` and are added through the Pi target `skillRoots`.
 - Direct skill invocation uses `/skill:<name>`.
+- Shared Paseo orchestration skills therefore invoke as `/skill:paseo`, `/skill:paseo-handoff`, `/skill:paseo-advisor`, `/skill:paseo-loop`, and `/skill:paseo-committee`.
 - This repository manages `enableSkillCommands` in Pi settings so direct skill commands remain available after sync.
 - Shared `fetch`, `serena`, `codegraph`, and `node_repl` MCP servers are configured for direct-tool exposure in Pi, and the managed Pi MCP settings hide the generic `mcp` proxy tool once the direct-tool cache is ready.
 - This repository also manages Pi-native capability packages: `pi-goal`, `pi-context-prune`, `pi-context-usage`, `pi-cache-graph`, and `pi-fallback-provider`, in addition to the existing Pi integration packages.
@@ -40,6 +44,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 ## Delegation Mapping
 
 - Shared routing and planning skills should talk about platform-specific delegation, not hard-code one client unless the skill itself is intentionally client-specific.
+- Shared Paseo skills are the preferred cross-client orchestration layer when `paseo` is available and provider-backed multi-agent work is actually warranted.
 - Codex-only delegation skill: `codex-subagent`
 - Pi native delegation package: `pi-subagents`
 - Claude Code and OpenCode should use their native subagent or delegation surfaces when one is available for the current session.
@@ -47,6 +52,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 ## Second-Pass Review Defaults
 
 - Shared default: prefer the `code-review` skill for non-trivial second-pass review.
+- When provider contrast or independent orchestration would materially reduce risk, escalate to `paseo-advisor` or a read-only `paseo-handoff` review pass after the normal review path.
 - Codex: prefer the child verifier agent as the first-pass independent reviewer; if unavailable, invoke the `code-review` skill through the Codex skill surface or reuse the verified non-interactive CLI review commands recorded in `prompts/codex-global-prompt.md`.
 - OpenCode: default explicit form is `skill-code-review`.
 - Claude Code: use the native `/` skill menu and invoke the shared `code-review` skill there when a second pass is needed.
