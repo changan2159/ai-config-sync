@@ -1,0 +1,7 @@
+interface:
+  display_name: "Python Workflow"
+  short_description: "Work safely in brownfield Python repos"
+  default_prompt: "Use $python-workflow to follow the repository's Python runtime, packaging, test, and framework conventions while making focused, behavior-safe changes."
+
+policy:
+  allow_implicit_invocation: true

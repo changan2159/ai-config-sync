@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paseo"
+  short_description: "Use Paseo safely for cross-provider orchestration"
+  default_prompt: "Use $paseo to decide whether Paseo is actually needed, then apply the correct CLI-safe delegation or review pattern with clear ownership and verification boundaries."
+
+policy:
+  allow_implicit_invocation: true

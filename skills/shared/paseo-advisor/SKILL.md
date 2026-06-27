@@ -9,7 +9,15 @@ Use this skill to request a read-only second opinion from another agent through 
 
 The advisor does analysis only. It does not own the implementation. The current agent remains responsible for judgment and follow-through.
 
-Read `paseo` first for the command surface.
+Read `paseo` first for the full command surface when possible.
+If this skill is invoked directly, keep these commands in mind:
+
+```bash
+paseo run --provider <provider> "<advisor prompt>"
+paseo run --provider <provider> --output-schema '<schema>' "<advisor prompt>"
+paseo wait <id-or-name>
+paseo logs <id-or-name> --tail 40
+```
 
 ## When To Use
 

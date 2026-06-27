@@ -1,0 +1,7 @@
+interface:
+  display_name: "Java Spring Workflow"
+  short_description: "Work safely in Spring Boot brownfield repos"
+  default_prompt: "Use $java-spring-workflow to follow the repository's Spring Boot, Maven, testing, schema, and dependency-management conventions while making focused Java changes."
+
+policy:
+  allow_implicit_invocation: true

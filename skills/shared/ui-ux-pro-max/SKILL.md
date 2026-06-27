@@ -11,17 +11,19 @@ Comprehensive design guide for web and mobile applications. Contains 50+ styles,
 
 This Skill should be used when the task involves **UI structure, visual design decisions, interaction patterns, or user experience quality control**.
 
-### Must Use
+### Use When
 
-This Skill must be invoked in the following situations:
+This Skill is a design reference and inspiration library. Prefer it in the following situations:
 
-- Designing new pages (Landing Page, Dashboard, Admin, SaaS, Mobile App)
-- Creating or refactoring UI components (buttons, modals, forms, tables, charts, etc.)
 - Choosing color schemes, typography systems, spacing standards, or layout systems
-- Auditing visual design quality, style consistency, or layout decisions in existing UI (not functional code review — use `design-review` or `code-review` for that)
-- Implementing navigation structures, animations, or responsive behavior
-- Making product-level design decisions (style, information hierarchy, brand expression)
-- Improving perceived quality, clarity, or usability of interfaces
+- Exploring visual directions, product aesthetics, or design language options before implementation
+- Making product-level design decisions about style, information hierarchy, or brand expression
+- Comparing alternative navigation, animation, chart, or responsive patterns
+- Auditing visual design quality or style consistency when the main need is broader design reasoning rather than direct implementation
+- Improving perceived quality, clarity, or usability of interfaces through pattern selection and design heuristics
+
+Do not use this skill as the default implementation entry point for building or redesigning UI.
+Use `frontend-design` for building or redesigning interfaces, `frontend-ui-engineering` for component and interaction implementation, and `design-review` or `frontend-design-review` for review-focused work.
 
 ### Recommended
 

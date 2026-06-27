@@ -9,7 +9,15 @@ Use this skill when the right workflow is not “delegate once”, but “repeat
 
 A Paseo loop is a worker/verifier cycle. A worker attempts the task. A verifier checks whether the acceptance criteria are met. Repeat until success or a defined limit is reached.
 
-Read `paseo` first for command surface details.
+Read `paseo` first for the full command surface when possible.
+If this skill is invoked directly, keep these commands in mind:
+
+```bash
+paseo run --provider <provider> "<task>"
+paseo run --provider <provider> --output-schema '<schema>' "<verifier prompt>"
+paseo wait <id-or-name>
+paseo logs <id-or-name> --tail 40
+```
 
 ## When To Use
 

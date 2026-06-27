@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paseo Loop"
+  short_description: "Run a bounded worker-verifier loop through Paseo"
+  default_prompt: "Use $paseo-loop to define a bounded worker-verifier loop through Paseo with a clear success signal, iteration limits, and explicit failure handling."
+
+policy:
+  allow_implicit_invocation: true

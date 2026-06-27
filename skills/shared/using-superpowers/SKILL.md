@@ -32,11 +32,21 @@ Use another skill when one of these is true:
 - the main risk is brownfield ownership entropy, file bloat, shallow wrappers, or duplicated orchestration; add `architecture-deepening`
 - the task is product-style frontend implementation, redesign, polish, or responsive fixing; use `frontend-design` and pair with `frontend-ui-engineering` when component logic or shared UI patterns are substantial
 - the task is Java or Spring Boot feature work, debugging, schema changes, security, testing, or dependency management; use `java-spring-workflow`
+- the task is Python application, script, CLI, or service work and repo conventions matter; use `python-workflow`
+- the task is TypeScript or Node.js backend, CLI, API, or service work; use `typescript-node-workflow`
 - the first problem is choosing a workflow shape for substantial multi-step work; use `project-orchestration`
 - the main decision is whether clearly independent workstreams are safe to split; use `parallel-execution`
 - provider-backed contrast or bounded advisory orchestration would materially reduce risk and `paseo` is available; use `paseo-advisor`, `paseo-committee`, `paseo-handoff`, or `paseo-loop` as appropriate
 - the task is clearly a phased migration or compatibility-sensitive refactor; use `large-refactor`
 - the issue is a failing build, test, or unclear behavior; use `systematic-debugging`
+- the task is a testable behavior change where focused failing tests are practical; use `test-driven-development`
+- the task is a dependency, framework, SDK, lockfile, or version migration; use `dependency-upgrade`
+- the task is primarily a document, PDF, Office file, spreadsheet, or format-fidelity workflow; use `document-workflow`
+- the task is an MCP server, tool API, prompt, transport, or integration build/change; use `mcp-builder`
+- the task is a security audit or the main risk is credentials, auth, PII, uploads, shell execution, or untrusted input; use `security-review`
+- the user wants web performance help; use `performance` for focused loading/runtime issues, `core-web-vitals` for LCP/INP/CLS-specific diagnosis, and `web-quality-audit` for broad audit work across performance, accessibility, SEO, and best practices
+- the user wants accessibility review or remediation; use `accessibility`
+- the user wants browser-based regression or E2E smoke verification in a Playwright repo; use `playwright-browser-regression`
 - the user wants commit-message drafting or staged change review; use `git-commit`
 - the task is addressing GitHub PR review comments or fixing failing GitHub Actions checks; use `gh-address-comments` or `gh-fix-ci`
 - the user mainly wants a plan; use `writing-plans`

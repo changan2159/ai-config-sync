@@ -9,7 +9,15 @@ Use this skill to hand a bounded task to another agent through the `paseo` CLI.
 
 This is the default shared delegation path when another agent should own a concrete slice of work and the current agent should either continue on the main thread or wait for the result.
 
-Read `paseo` first for the command surface and safety rules.
+Read `paseo` first for the full command surface and safety rules when possible.
+If this skill is invoked directly, keep these commands in mind:
+
+```bash
+paseo run --provider <provider> "<briefing>"
+paseo run --detach --name <name> --provider <provider> "<briefing>"
+paseo wait <id-or-name>
+paseo logs <id-or-name> --tail 40
+```
 
 ## When To Use
 

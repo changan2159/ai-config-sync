@@ -300,7 +300,8 @@ function useToggleTask() {
 
 ## See Also
 
-For detailed accessibility requirements and testing tools, see `references/accessibility-checklist.md`.
+For detailed accessibility requirements and audit guidance, use the shared `accessibility` skill directly.
+Use `frontend-design` for visual redesign or layout-polish work, and use `frontend-design-review` when the task is UI review rather than implementation.
 
 ## Common Rationalizations
 

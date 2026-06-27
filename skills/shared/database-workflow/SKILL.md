@@ -1,6 +1,6 @@
 ---
 name: database-workflow
-description: Use when a task involves database schema lookup, SQL query drafting, PostgreSQL or SQL Server data inspection, view/procedure inspection, execution-plan or index analysis, routine insert/update/delete/exec work, or validating application behavior against database state. On this machine, prefer the fixed wrappers under C:/Users/admin/db-tools over database MCPs or ad hoc raw CLI output.
+description: Use when a task involves database schema lookup, SQL query drafting, PostgreSQL or SQL Server data inspection, view/procedure inspection, execution-plan or index analysis, routine insert/update/delete/exec work, or validating application behavior against database state. Prefer stable local wrapper commands when the host or project provides them; otherwise use the narrowest reliable native database CLI or reviewed project workflow.
 ---
 
 # Database Workflow
@@ -9,23 +9,18 @@ Use this skill for database work in chat. It keeps database access consistent wi
 
 ## Tool Defaults
 
-Use the wrappers under `C:\Users\admin\db-tools`.
+Prefer stable local wrapper commands when they are already provided by the host or repository.
+If the environment has reviewed database wrappers, use those first for consistent JSON-like or structured output.
+If not, use the narrowest reliable native CLI or reviewed project workflow and say which path you used.
 
-Read path:
+Typical wrapper shape:
 
-```powershell
-C:\Users\admin\db-tools\pg-query.cmd "<sql>"
-C:\Users\admin\db-tools\sqlserver-query.cmd "<sql>"
+```text
+<db-wrapper> query "<sql>"
+<db-wrapper> exec "<sql>"
 ```
 
-Write path:
-
-```powershell
-C:\Users\admin\db-tools\pg-exec.cmd "<sql>"
-C:\Users\admin\db-tools\sqlserver-exec.cmd "<sql>"
-```
-
-Prefer these wrappers for:
+Prefer wrappers or reviewed project-owned commands for:
 
 - schema lookup
 - data queries
@@ -63,7 +58,7 @@ Do not hide uncertainty about environment, database, tenant, or target table. If
 2. Use wrapper-based metadata queries before assuming schema names, columns, or object types.
 3. For data inspection, keep queries narrow and return only the columns needed for the task.
 4. For performance analysis, collect the query text, predicates, joins, row estimates or actuals, and relevant indexes.
-5. For writes, verify the target set, execute through the matching `*-exec.cmd`, then run a focused readback query.
+5. For writes, verify the target set, execute through the matching reviewed write path, then run a focused readback query.
 6. Report the command class used, the important result, and any residual risk.
 
 ## Metadata Queries

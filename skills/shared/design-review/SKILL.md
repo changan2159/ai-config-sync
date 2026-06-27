@@ -15,15 +15,20 @@ The goal: would a design-conscious person look at this and think "this is well m
 - When something "looks off" but you can't pinpoint why
 - After building a feature, before calling it done
 - Periodic quality check on a shipped product
-- After a UX audit — this is the visual companion
+- After a broader UX or quality audit — this is the visual companion
+
+Use `frontend-design-review` instead when the main goal is PR review, design-system compliance, component-level review, accessibility review, or implementation review against an existing design spec.
+Use this skill when the main question is visual polish, layout quality, spacing, hierarchy, and overall presentation quality.
 
 ## Browser Tool Detection
 
-Same as ux-audit — use the available browser tooling in the current environment.
+Use the available browser tooling in the current environment.
+Prefer screenshot-capable and inspection-capable browser workflows when feasible so findings are tied to visible evidence.
 
 ## URL Resolution
 
-Same as ux-audit — prefer deployed/live over localhost.
+Prefer deployed or otherwise representative live environments over localhost when both are available.
+If only localhost is available, say so and continue with that constraint.
 
 ## What to Check
 
@@ -112,7 +117,10 @@ Same as ux-audit — prefer deployed/live over localhost.
 
 ## Output
 
-Write findings to `.jez/artifacts/design-review.md`:
+If the repository already has a reviewed artifacts convention, write findings there.
+Otherwise, return the findings directly in chat or write them to a user-requested path such as `artifacts/design-review.md`.
+
+Suggested output shape:
 
 ```markdown
 # Design Review: [App Name]

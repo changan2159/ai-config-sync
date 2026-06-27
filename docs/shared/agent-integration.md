@@ -27,6 +27,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 - This repository manages the canonical invocation prefix through `targets.opencode.agentPrefix`.
 - Current canonical form is `skill-<name>`.
 - Shared Paseo orchestration skills therefore invoke as `skill-paseo`, `skill-paseo-handoff`, `skill-paseo-advisor`, `skill-paseo-loop`, and `skill-paseo-committee`.
+- OpenCode currently relies on the shared skill set by default; `skills/opencode/` is an intentional placeholder for future OpenCode-only skills rather than a required active skill root today.
 
 ### Pi
 
@@ -48,6 +49,18 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 - Codex-only delegation skill: `codex-subagent`
 - Pi native delegation package: `pi-subagents`
 - Claude Code and OpenCode should use their native subagent or delegation surfaces when one is available for the current session.
+- Prefer `codex-subagent` for Codex-local child work when provider contrast is not needed and the work stays inside the current Codex session model.
+- Prefer `paseo-handoff`, `paseo-advisor`, `paseo-loop`, or `paseo-committee` when cross-provider contrast, background orchestration, worktree isolation, or multi-client consistency materially helps.
+
+## Routing Notes
+
+- Use `design-review` for visual polish, layout quality, spacing, hierarchy, and presentation review of an existing UI.
+- Use `frontend-design-review` for PR review, design-system compliance, component-level review, accessibility review, or implementation review against an existing design spec.
+- Use `frontend-design` for creating or redesigning interfaces, and pair it with `frontend-ui-engineering` when component logic, state, or shared interaction patterns are substantial.
+- Use `performance` for focused loading, runtime, and resource optimization work.
+- Use `core-web-vitals` when the task is specifically about LCP, INP, CLS, or layout-shift diagnosis.
+- Use `web-quality-audit` when the request is a broad web audit across performance, accessibility, SEO, and best practices.
+- For .NET work, combine `csharp-symbolic-workflow` with `aspnet-core` when both framework guidance and symbol-level brownfield tracing matter; add `aspnet-modular-autofac` when Autofac modules, assembly scanning, or indirect runtime registration are part of the problem.
 
 ## Second-Pass Review Defaults
 

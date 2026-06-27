@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paseo Committee"
+  short_description: "Run contrasting read-only analyses through Paseo"
+  default_prompt: "Use $paseo-committee to gather two contrasting read-only analyses through Paseo before committing to an implementation or migration plan."
+
+policy:
+  allow_implicit_invocation: true

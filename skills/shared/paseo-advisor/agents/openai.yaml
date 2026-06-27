@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paseo Advisor"
+  short_description: "Get a read-only second opinion through Paseo"
+  default_prompt: "Use $paseo-advisor to request a read-only second opinion through Paseo with a clear advisory lens, concise output, and no transfer of implementation ownership."
+
+policy:
+  allow_implicit_invocation: true

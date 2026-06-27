@@ -68,9 +68,14 @@
 - For retrieval-first repository questions, use `fast-codebase-retrieval`.
 - For brownfield ownership, definitions, references, implementations, call chains, or dependency wiring, use `serena-workflow` or a narrower language-specific symbolic skill.
 - For product-style frontend implementation, redesign, polish, or responsive fixes, use `frontend-design`; pair with `frontend-ui-engineering` when component logic, shared UI patterns, or interaction architecture are substantial.
+- For visual polish, layout quality, spacing, hierarchy, and presentation review of an existing UI, use `design-review`.
+- For PR review, design-system compliance, implementation review, or component-level frontend review, use `frontend-design-review`.
 - For Java or Spring Boot feature work, debugging, schema changes, security, testing, or dependency management, use `java-spring-workflow`; pair with `serena-workflow` when brownfield symbol tracing matters.
+- For Python application, script, CLI, service, or automation work where repo conventions matter, use `python-workflow`.
+- For TypeScript or Node.js backend, CLI, API, worker, or service work, use `typescript-node-workflow`.
 - For bug reports, failing tests, build failures, or unclear behavior, use `systematic-debugging`.
 - For testable behavior changes, prefer `test-driven-development`.
+- For broad web audits across performance, accessibility, SEO, and best practices, use `web-quality-audit`; for focused loading/runtime performance use `performance`; for LCP/INP/CLS-specific work use `core-web-vitals`.
 - For optimization, improvement, or refactor requests with an unclear or mixed axis, start with `code-optimization`. If the axis is already clearly maintainability and the work is mainly about reuse, cohesion, file health, or file boundaries, go directly to `code-maintainability`.
 - When reuse, cohesion, abstraction boundaries, or file health are materially at risk, pair non-trivial implementation or review work with `code-maintainability`; escalate to `architecture-deepening` when ownership entropy, file bloat, or shallow wrappers become the main risk.
 - For commit message drafting or staged change review, use `git-commit`.

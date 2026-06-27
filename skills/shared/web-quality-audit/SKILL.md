@@ -160,9 +160,10 @@ When performing an audit, structure findings as:
 
 ## References
 
-For detailed guidelines on specific areas:
+For deeper follow-up work in this repository:
 - [Performance Optimization](../performance/SKILL.md)
 - [Core Web Vitals](../core-web-vitals/SKILL.md)
 - [Accessibility](../accessibility/SKILL.md)
-- [SEO](../seo/SKILL.md)
-- [Best Practices](../best-practices/SKILL.md)
+
+This skill is the umbrella audit for performance, accessibility, SEO, and best-practices review.
+Use `performance` for focused loading/runtime work, and use `core-web-vitals` when the main issue is specifically LCP, INP, CLS, or layout-shift diagnosis.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Fast Codebase Retrieval"
+  short_description: "Find the smallest complete cross-file context quickly"
+  default_prompt: "Use $fast-codebase-retrieval to locate the smallest complete set of owner files, related files, and cross-file context for a brownfield repository question before editing."
+
+policy:
+  allow_implicit_invocation: true

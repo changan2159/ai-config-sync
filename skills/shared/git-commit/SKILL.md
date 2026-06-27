@@ -16,6 +16,25 @@ description: Git commit message generator that creates conventional commit messa
 - 写提交信息 / Write commit message
 - 提交代码 / Commit code
 - 描述代码变更 / Describe code changes
+- 审查已暂存变更 / Review staged changes
+- 检查提交范围是否合理 / Check commit scope before commit
+
+## Staged Change Review
+
+When the main need is reviewing what is staged before a commit:
+
+1. Inspect `git diff --staged` and `git status --short`.
+2. Check whether the staged files match one coherent change.
+3. Flag unrelated files, accidental formatting churn, generated output, secrets, or missing paired tests/docs when relevant.
+4. Recommend a tighter staging set when the commit scope is mixed.
+5. Only after the staged scope is coherent, draft the commit message.
+
+Review questions:
+
+- Does the staged diff represent one change or several unrelated ones?
+- Are there risky files staged accidentally?
+- Is the commit missing the nearest tests, docs, or config changes needed to make the change understandable?
+- Would a reviewer understand the intent from the staged diff alone?
 
 ## Instructions
 

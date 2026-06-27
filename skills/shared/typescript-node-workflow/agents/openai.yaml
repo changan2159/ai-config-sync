@@ -1,0 +1,7 @@
+interface:
+  display_name: "TypeScript Node Workflow"
+  short_description: "Work safely in brownfield TS/Node backends"
+  default_prompt: "Use $typescript-node-workflow to follow the repository's Node runtime, package scripts, module system, framework wiring, and verification conventions while making focused backend or CLI changes."
+
+policy:
+  allow_implicit_invocation: true

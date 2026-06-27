@@ -1,7 +1,7 @@
 interface:
   display_name: "Git Commit"
-  short_description: "Generate conventional commit messages from diffs"
-  default_prompt: "Use $git-commit to generate a conventional commit message from the current code changes."
+  short_description: "Review staged changes and draft conventional commits"
+  default_prompt: "Use $git-commit to review the staged diff for scope coherence, flag obvious staging problems, and then draft a conventional commit message that matches the actual change."
 
 policy:
   allow_implicit_invocation: true

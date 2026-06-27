@@ -1,0 +1,7 @@
+interface:
+  display_name: "Paseo Handoff"
+  short_description: "Delegate a bounded implementation or review slice"
+  default_prompt: "Use $paseo-handoff to hand a bounded task to another agent through Paseo with explicit scope, ownership, provider choice, and verification expectations."
+
+policy:
+  allow_implicit_invocation: true

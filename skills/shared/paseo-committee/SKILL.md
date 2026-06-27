@@ -9,7 +9,15 @@ Use this skill when one advisor is not enough and the main need is better thinki
 
 A committee is a small multi-agent analysis pass, typically two high-reasoning agents with contrasting perspectives. They analyze the problem read-only. The current agent synthesizes the result and decides what to implement.
 
-Read `paseo` first for the shared command surface.
+Read `paseo` first for the full shared command surface when possible.
+If this skill is invoked directly, keep these commands in mind:
+
+```bash
+paseo run --provider <provider> "<committee prompt>"
+paseo run --provider <provider> --detach --name <name> "<committee prompt>"
+paseo wait <id-or-name>
+paseo logs <id-or-name> --tail 40
+```
 
 ## When To Use
 
