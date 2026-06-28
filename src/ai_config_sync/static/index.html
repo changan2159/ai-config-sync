@@ -272,17 +272,26 @@ main{max-width:1440px;margin:0 auto;padding:20px;display:flex;flex-direction:col
   </div>
   <button class="btn sm icon" onclick="openSettings()" title="设置">⚙</button>
   <button class="btn sm icon" id="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+  <button class="btn sm" onclick="manualRefreshDashboard()">检测</button>
   <button class="btn sm" onclick="openProcModal()">进程 <span id="proc-count" class="subtle"></span></button>
   <button class="btn primary sm" onclick="doSync()">↻ 同步</button>
 </header>
 
 <main>
 
+<div id="refresh-error-banner" class="card" style="display:none;border-color:var(--red);background:var(--red-soft)">
+  <div class="card-head" style="border-bottom:none">
+    <span class="card-title" style="color:var(--red)">刷新失败</span>
+    <div class="card-actions"><button class="btn sm" onclick="manualRefreshDashboard()">立即重试</button></div>
+  </div>
+  <div id="refresh-error-text" style="padding:0 18px 14px;font-size:12px;color:var(--text)"></div>
+</div>
+
 <!-- 工具状态 -->
 <div class="card">
   <div class="card-head">
     <span class="card-title">工具状态</span>
-    <div class="card-actions"><button class="btn sm" onclick="refreshStatus()">↻ 刷新</button></div>
+    <div class="card-actions"><button class="btn sm" onclick="manualRefreshDashboard()">↻ 立即检测</button></div>
   </div>
   <div class="tools-grid" id="tools-grid"><div class="empty"><div class="spin"></div></div></div>
 </div>
@@ -659,18 +668,282 @@ function applyTheme(t){
   const sel=document.getElementById('theme-select');
   if(sel)sel.value=t;
   localStorage.setItem('theme',t);
-  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})}).catch(()=>{});
+  fetchJson('/api/settings',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({theme:t}),
+  }).catch(err=>showRefreshError('主题设置保存失败',err));
 }
 function toggleTheme(){applyTheme(document.documentElement.classList.contains('dark')?'light':'dark')}
 
 // ── 状态刷新 ─────────────────────────────────────────────────────────────────
-async function refreshStatus(){
-  try{
-    const{tools,sync_service}=await fetch('/api/status').then(r=>r.json());
-    renderTools(tools);renderSyncService(sync_service);
-    document.getElementById('last-refresh').textContent='刷新于 '+new Date().toLocaleTimeString();
-  }catch(e){console.error(e)}
+const DASHBOARD_REFRESH_DEFAULT_MS=15000;
+const DASHBOARD_REFRESH_BOOST_MS=5000;
+const DASHBOARD_REFRESH_RESTART_MS=3000;
+const DASHBOARD_REFRESH_BOOST_WINDOW_MS=45000;
+const DASHBOARD_REFRESH_LEASE_MS=20000;
+const DASHBOARD_REFRESH_LEASE_KEY='ai-config-sync:dashboard-refresh-lease';
+const DASHBOARD_REFRESH_CHANNEL='ai-config-sync:dashboard-refresh';
+const _refreshTabId=`${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const _refreshChannel=typeof BroadcastChannel==='function'?new BroadcastChannel(DASHBOARD_REFRESH_CHANNEL):null;
+let _statusRefreshPromise=null;
+let _daemonRefreshPromise=null;
+let _dashboardRefreshPromise=null;
+let _dashboardRefreshTimer=null;
+let _dashboardLeaderCheckTimer=null;
+let _dashboardRefreshBoostUntil=0;
+let _dashboardRefreshBoostMs=DASHBOARD_REFRESH_BOOST_MS;
+let _lastDashboardRefreshAt=0;
+let _isDashboardLeader=false;
+
+async function fetchJson(url, options){
+  const res=await fetch(url,options);
+  const text=await res.text();
+  let data={};
+  if(text){
+    try{data=JSON.parse(text)}
+    catch(_err){
+      if(!res.ok)throw new Error(`${url} 请求失败（HTTP ${res.status}）: ${text}`);
+      throw new Error(`${url} 返回了无法解析的响应`);
+    }
+  }
+  if(!res.ok){
+    const detail=data&&typeof data==='object'?(data.detail||data.error||''):'';
+    throw new Error(`${url} 请求失败（HTTP ${res.status}）${detail?`: ${detail}`:''}`);
+  }
+  return data;
 }
+function formatRefreshError(label,error){
+  const message=error instanceof Error?error.message:String(error||'未知错误');
+  return `${label}: ${message}`;
+}
+function renderRefreshError(message){
+  const box=document.getElementById('refresh-error-banner');
+  const text=document.getElementById('refresh-error-text');
+  if(!box||!text)return;
+  if(!message){
+    box.style.display='none';
+    text.textContent='';
+    return;
+  }
+  text.textContent=message;
+  box.style.display='';
+}
+function clearRefreshError(){renderRefreshError('')}
+function showRefreshError(label,error,{alertUser=false,broadcast=false}={}){
+  const message=formatRefreshError(label,error);
+  renderRefreshError(message);
+  if(alertUser)alert(message);
+  if(broadcast)broadcastDashboardMessage('dashboard-error',{message});
+  return message;
+}
+function broadcastDashboardMessage(type,payload={}){
+  if(!_refreshChannel)return;
+  try{_refreshChannel.postMessage({type,tabId:_refreshTabId,...payload})}catch(_err){}
+}
+function readDashboardLease(){
+  try{
+    const raw=localStorage.getItem(DASHBOARD_REFRESH_LEASE_KEY);
+    return raw?JSON.parse(raw):null;
+  }catch(_err){
+    return null;
+  }
+}
+function writeDashboardLease(owner=_refreshTabId,expiresAt=Date.now()+DASHBOARD_REFRESH_LEASE_MS){
+  try{
+    localStorage.setItem(DASHBOARD_REFRESH_LEASE_KEY,JSON.stringify({owner,expiresAt}));
+    return true;
+  }catch(_err){
+    return false;
+  }
+}
+function releaseDashboardLease(){
+  const lease=readDashboardLease();
+  if(lease&&lease.owner===_refreshTabId){
+    try{localStorage.removeItem(DASHBOARD_REFRESH_LEASE_KEY)}catch(_err){}
+  }
+}
+function currentDashboardRefreshInterval(){
+  if(Date.now()>=_dashboardRefreshBoostUntil){
+    _dashboardRefreshBoostMs=DASHBOARD_REFRESH_BOOST_MS;
+    return DASHBOARD_REFRESH_DEFAULT_MS;
+  }
+  return _dashboardRefreshBoostMs;
+}
+function updateRefreshMeta(){
+  const el=document.getElementById('last-refresh');
+  if(!el)return;
+  const leaderText=document.hidden?'当前页面已暂停':_isDashboardLeader?'本页自动刷新':'由其他页面刷新';
+  const parts=[leaderText,`每${Math.round(currentDashboardRefreshInterval()/1000)}s`];
+  if(_lastDashboardRefreshAt)parts.push('刷新于 '+new Date(_lastDashboardRefreshAt).toLocaleTimeString());
+  el.textContent=parts.join(' · ');
+}
+function setDashboardLeader(next){
+  _isDashboardLeader=!!next;
+  if(!_isDashboardLeader&&_dashboardRefreshTimer!==null){
+    clearTimeout(_dashboardRefreshTimer);
+    _dashboardRefreshTimer=null;
+  }
+  updateRefreshMeta();
+}
+function scheduleDashboardLeaderCheck(delayMs){
+  if(_dashboardLeaderCheckTimer!==null){
+    clearTimeout(_dashboardLeaderCheckTimer);
+    _dashboardLeaderCheckTimer=null;
+  }
+  if(document.hidden)return;
+  _dashboardLeaderCheckTimer=setTimeout(()=>{
+    _dashboardLeaderCheckTimer=null;
+    if(ensureDashboardLeader())scheduleDashboardRefresh(0);
+  },Math.max(1000,delayMs));
+}
+function ensureDashboardLeader(){
+  if(document.hidden){
+    setDashboardLeader(false);
+    return false;
+  }
+  const now=Date.now();
+  const lease=readDashboardLease();
+  if(lease&&lease.owner!==_refreshTabId&&Number(lease.expiresAt||0)>now){
+    setDashboardLeader(false);
+    scheduleDashboardLeaderCheck(Number(lease.expiresAt)-now+250);
+    return false;
+  }
+  writeDashboardLease(_refreshTabId,now+DASHBOARD_REFRESH_LEASE_MS);
+  const confirmed=readDashboardLease();
+  const isLeader=!!(confirmed&&confirmed.owner===_refreshTabId);
+  setDashboardLeader(isLeader);
+  if(!isLeader&&confirmed&&Number(confirmed.expiresAt||0)>now){
+    scheduleDashboardLeaderCheck(Number(confirmed.expiresAt)-now+250);
+  }
+  return isLeader;
+}
+function startDashboardRefreshBoost({durationMs=DASHBOARD_REFRESH_BOOST_WINDOW_MS,intervalMs=DASHBOARD_REFRESH_BOOST_MS,broadcast=true}={}){
+  _dashboardRefreshBoostUntil=Math.max(_dashboardRefreshBoostUntil,Date.now()+durationMs);
+  _dashboardRefreshBoostMs=Math.min(_dashboardRefreshBoostMs||intervalMs,intervalMs);
+  if(broadcast)broadcastDashboardMessage('dashboard-boost',{boostUntil:_dashboardRefreshBoostUntil,boostMs:_dashboardRefreshBoostMs});
+  updateRefreshMeta();
+  if(!document.hidden&&ensureDashboardLeader())scheduleDashboardRefresh(intervalMs);
+}
+function renderStatusPayload(payload){
+  const{tools,sync_service}=payload||{};
+  if(Array.isArray(tools))renderTools(tools);
+  renderSyncService(sync_service);
+}
+async function fetchStatusPayload(){return fetchJson('/api/status')}
+async function refreshStatus({alertOnError=false}={}){
+  if(_statusRefreshPromise)return _statusRefreshPromise;
+  _statusRefreshPromise=(async()=>{
+    try{
+      const payload=await fetchStatusPayload();
+      renderStatusPayload(payload);
+      return payload;
+    }catch(err){
+      showRefreshError('工具状态刷新失败',err,{alertUser:alertOnError});
+      return null;
+    }finally{_statusRefreshPromise=null}
+  })();
+  return _statusRefreshPromise;
+}
+async function runDashboardRefresh({broadcast=false,alertOnError=false}={}){
+  if(_dashboardRefreshPromise)return _dashboardRefreshPromise;
+  _dashboardRefreshPromise=(async()=>{
+    try{
+      const[status,daemon,processes]=await Promise.all([fetchStatusPayload(),fetchDaemonPayload(),fetchProcessList()]);
+      const shouldRefreshAgents=_openAgentKey&&document.getElementById('agent-detail-modal').classList.contains('open');
+      let agents=null;
+      renderStatusPayload(status);
+      renderDaemonPayload(daemon);
+      renderProcessCount(processes);
+      if(shouldRefreshAgents)agents=await refreshAgents({alertOnError:false});
+      _lastDashboardRefreshAt=Date.now();
+      clearRefreshError();
+      updateRefreshMeta();
+      if(broadcast)broadcastDashboardMessage('dashboard-snapshot',{status,daemon,processes,agents,at:_lastDashboardRefreshAt});
+      return{status,daemon,processes,agents};
+    }catch(err){
+      showRefreshError('仪表盘刷新失败',err,{alertUser:alertOnError,broadcast});
+      updateRefreshMeta();
+      return null;
+    }finally{_dashboardRefreshPromise=null}
+  })();
+  return _dashboardRefreshPromise;
+}
+async function manualRefreshDashboard(){
+  return runDashboardRefresh({broadcast:true,alertOnError:true});
+}
+function scheduleDashboardRefresh(delayMs=currentDashboardRefreshInterval()){
+  if(_dashboardRefreshTimer!==null){
+    clearTimeout(_dashboardRefreshTimer);
+    _dashboardRefreshTimer=null;
+  }
+  if(document.hidden){
+    setDashboardLeader(false);
+    return;
+  }
+  if(!ensureDashboardLeader())return;
+  _dashboardRefreshTimer=setTimeout(async()=>{
+    _dashboardRefreshTimer=null;
+    if(!ensureDashboardLeader())return;
+    await runDashboardRefresh({broadcast:true});
+    if(ensureDashboardLeader())scheduleDashboardRefresh(currentDashboardRefreshInterval());
+  },Math.max(1000,delayMs));
+  updateRefreshMeta();
+}
+if(_refreshChannel){
+  _refreshChannel.onmessage=e=>{
+    const msg=e.data||{};
+    if(msg.tabId===_refreshTabId)return;
+    if(msg.type==='dashboard-snapshot'){
+      renderStatusPayload(msg.status);
+      renderDaemonPayload(msg.daemon);
+      renderProcessCount(msg.processes||[]);
+      if(Array.isArray(msg.agents))renderAgentsData(msg.agents);
+      _lastDashboardRefreshAt=Number(msg.at)||Date.now();
+      clearRefreshError();
+      updateRefreshMeta();
+      return;
+    }
+    if(msg.type==='dashboard-error'){
+      renderRefreshError(msg.message||'仪表盘刷新失败');
+      updateRefreshMeta();
+      return;
+    }
+    if(msg.type==='dashboard-boost'){
+      _dashboardRefreshBoostUntil=Math.max(_dashboardRefreshBoostUntil,Number(msg.boostUntil)||0);
+      const incomingBoostMs=Number(msg.boostMs)||DASHBOARD_REFRESH_BOOST_MS;
+      _dashboardRefreshBoostMs=Math.min(_dashboardRefreshBoostMs||incomingBoostMs,incomingBoostMs);
+      updateRefreshMeta();
+    }
+  };
+}
+window.addEventListener('storage',e=>{
+  if(e.key!==DASHBOARD_REFRESH_LEASE_KEY)return;
+  if(!e.newValue){
+    if(!document.hidden)scheduleDashboardLeaderCheck(1000);
+    return;
+  }
+  try{
+    const lease=JSON.parse(e.newValue);
+    if(lease&&lease.owner!==_refreshTabId&&Number(lease.expiresAt||0)>Date.now()){
+      setDashboardLeader(false);
+      scheduleDashboardLeaderCheck(Number(lease.expiresAt)-Date.now()+250);
+    }
+  }catch(_err){}
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    if(_dashboardRefreshTimer!==null){clearTimeout(_dashboardRefreshTimer);_dashboardRefreshTimer=null}
+    if(_dashboardLeaderCheckTimer!==null){clearTimeout(_dashboardLeaderCheckTimer);_dashboardLeaderCheckTimer=null}
+    releaseDashboardLease();
+    setDashboardLeader(false);
+    updateRefreshMeta();
+    return;
+  }
+  scheduleDashboardRefresh(1000);
+});
+window.addEventListener('pagehide',releaseDashboardLease);
+window.addEventListener('beforeunload',releaseDashboardLease);
 
 let _latestToolData=[];
 function renderTools(tools){
@@ -730,18 +1003,22 @@ async function install(tool){await _runWithSudo('install',tool)}
 async function upgrade(tool,ver){await _runWithSudo('update',tool,ver)}
 
 async function _runWithSudo(action,tool,version){
-  const s=await fetch('/api/settings').then(r=>r.json());
-  if(s.has_sudo_password){
-    runJob(action,tool,null,version);
-  } else {
-    const pw=prompt(`"${tool}" 升级可能需要 sudo 权限。\n请输入 sudo 密码（留空则跳过）：`);
-    runJob(action,tool,pw||null,version);
+  try{
+    const s=await fetchJson('/api/settings');
+    if(s.has_sudo_password){
+      runJob(action,tool,null,version);
+    }else{
+      const pw=prompt(`"${tool}" 升级可能需要 sudo 权限。
+请输入 sudo 密码（留空则跳过）：`);
+      runJob(action,tool,pw||null,version);
+    }
+  }catch(err){
+    showRefreshError('读取设置失败',err,{alertUser:true});
   }
 }
 
 // ── MCP ──────────────────────────────────────────────────────────────────────
-async function refreshMcp(){
-  const data=await fetch('/api/mcp').then(r=>r.json());
+function renderMcpData(data){
   _latestMcpData=data;
   const tb=document.getElementById('mcp-tbody');
   const visible=sortByMemoryDesc(data);
@@ -774,18 +1051,43 @@ async function refreshMcp(){
     </tr>`;
   }).join('');
 }
+async function refreshMcp({alertOnError=false}={}){
+  try{
+    const data=await fetchJson('/api/mcp');
+    renderMcpData(data);
+    return data;
+  }catch(err){
+    const message=showRefreshError('MCP 列表刷新失败',err,{alertUser:alertOnError});
+    const tb=document.getElementById('mcp-tbody');
+    if(tb)tb.innerHTML=`<tr><td colspan="5" class="empty" style="color:var(--red)">${esc(message)}</td></tr>`;
+    return[];
+  }
+}
 function toggleAddMcp(){document.getElementById('add-mcp-modal').classList.add('open')}
 function closeAddMcpModal(){document.getElementById('add-mcp-modal').classList.remove('open')}
 async function addMcp(){
   const name=document.getElementById('mcp-name').value.trim();
   if(!name)return;
-  const res=await fetch('/api/mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,transport:document.getElementById('mcp-transport').value,command:document.getElementById('mcp-cmd').value.trim()||null})}).then(r=>r.json());
-  closeAddMcpModal();openJobModal(res.id,res.label,()=>refreshMcp());
+  try{
+    const res=await fetchJson('/api/mcp',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,transport:document.getElementById('mcp-transport').value,command:document.getElementById('mcp-cmd').value.trim()||null}),
+    });
+    closeAddMcpModal();
+    openJobModal(res.id,res.label,()=>refreshMcp({alertOnError:false}));
+  }catch(err){
+    showRefreshError('添加 MCP 失败',err,{alertUser:true});
+  }
 }
 async function removeMcp(name){
   if(!confirm(`确认移除 MCP 服务器 "${name}"？`))return;
-  const res=await fetch('/api/mcp/'+name,{method:'DELETE'}).then(r=>r.json());
-  openJobModal(res.id,res.label,()=>refreshMcp());
+  try{
+    const res=await fetchJson('/api/mcp/'+name,{method:'DELETE'});
+    openJobModal(res.id,res.label,()=>refreshMcp({alertOnError:false}));
+  }catch(err){
+    showRefreshError('移除 MCP 失败',err,{alertUser:true});
+  }
 }
 
 // ── 进程（分组） ─────────────────────────────────────────────────────────────
@@ -858,14 +1160,17 @@ function _countKinds(procs){
   });
   return counts;
 }
-async function refreshProcesses(){
-  const procs=await fetch('/api/processes').then(r=>r.json());
+async function fetchProcessList(){return fetchJson('/api/processes')}
+function renderProcessCount(procs){
+  const badge=document.getElementById('proc-count');
+  if(badge)badge.textContent=procs&&procs.length?`(${procs.length})`:'';
+}
+function renderProcesses(procs){
   window._latestProcessData=procs;
   const el=document.getElementById('proc-container');
-  const badge=document.getElementById('proc-count');
   const expandedTools=[...el.querySelectorAll('details.proc-group[data-tool]')].filter(node=>node.open).map(node=>node.dataset.tool);
   const visible=sortByMemoryDesc(procs);
-  if(badge)badge.textContent=visible.length?`(${visible.length})`:'';
+  renderProcessCount(visible);
   if(!visible.length){el.innerHTML='<div class="empty">当前没有工具进程</div>';return}
   const groups={};
   visible.forEach(p=>{(groups[p.tool]=groups[p.tool]||[]).push(p)});
@@ -912,6 +1217,19 @@ async function refreshProcesses(){
       ${innerHtml}
     </details>`;
   }).join('')}</div>`;
+}
+async function refreshProcesses({alertOnError=true}={}){
+  try{
+    const procs=await fetchProcessList();
+    renderProcesses(procs);
+    return procs;
+  }catch(err){
+    const message=showRefreshError('进程列表刷新失败',err,{alertUser:alertOnError});
+    const el=document.getElementById('proc-container');
+    if(el)el.innerHTML=`<div class="empty" style="color:var(--red)">${esc(message)}</div>`;
+    renderProcessCount([]);
+    return[];
+  }
 }
 async function killPid(pid){
   try{
@@ -979,18 +1297,11 @@ async function killAllGlobalUnmapped(){
   await Promise.all([refreshProcesses(),refreshMcp()]);
 }
 async function killApiRequest(payload){
-  const res=await fetch('/api/processes/kill',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  let result={};
-  try{
-    const text=await res.text();
-    result=text?JSON.parse(text):{};
-  }catch(_err){
-    if(!res.ok)throw new Error(`终止请求失败（HTTP ${res.status}）`);
-    console.warn('Kill API returned non-JSON success response', payload, res.status);
-    result={};
-  }
-  if(!res.ok)throw new Error(result?.detail||`终止请求失败（HTTP ${res.status}）`);
-  return result;
+  return fetchJson('/api/processes/kill',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload),
+  });
 }
 function showKillErrors(result){
   const errors=(result&&result.errors)||[];
@@ -1058,8 +1369,7 @@ function renderSkillTable(entries){
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
-async function refreshAgents(){
-  const data=await fetch('/api/agents').then(r=>r.json());
+function renderAgentsData(data){
   const el=document.getElementById('agents-grid');
   if(!data.length||data[0].error){el.innerHTML=`<div class="empty">${data[0]?.error||'无数据'}</div>`;return}
   _latestAgentData=data;
@@ -1079,6 +1389,19 @@ async function refreshAgents(){
       ${a.mcp_servers.length?`<div class="agent-card-mcp"><span class="subtle">MCP</span>${mcps}</div>`:''}
     </div>`;
   }).join('');
+}
+async function fetchAgentsData(){return fetchJson('/api/agents')}
+async function refreshAgents({alertOnError=true}={}){
+  try{
+    const data=await fetchAgentsData();
+    renderAgentsData(data);
+    return data;
+  }catch(err){
+    const message=showRefreshError('Agent 列表刷新失败',err,{alertUser:alertOnError});
+    const el=document.getElementById('agents-grid');
+    if(el)el.innerHTML=`<div class="empty" style="color:var(--red)">${esc(message)}</div>`;
+    return[];
+  }
 }
 
 function openMcpProcessModal(name){
@@ -1149,9 +1472,10 @@ async function openPromptModal(tool){
   document.getElementById('prompt-modal-title').textContent=`${tool} 提示词`;
   const body=document.getElementById('prompt-modal-body');
   body.innerHTML='<div class="empty"><div class="spin"></div></div>';
-  const data=await fetch(`/api/prompts/${tool}`).then(r=>r.json());
-  document.getElementById('prompt-modal-title').textContent=`${data.label} 提示词`;
-  body.innerHTML=`
+  try{
+    const data=await fetchJson(`/api/prompts/${tool}`);
+    document.getElementById('prompt-modal-title').textContent=`${data.label} 提示词`;
+    body.innerHTML=`
     <div class="prompt-section">
       <div class="prompt-head"><strong>共享提示词</strong><span class="subtle">修改后会影响所有工具</span></div>
       <div class="prompt-body">
@@ -1175,46 +1499,74 @@ async function openPromptModal(tool){
         <textarea readonly>${esc(data.effective.text||'')}</textarea>
       </div>
     </div>
-  `;
+    `;
+  }catch(err){
+    const message=showRefreshError('读取提示词失败',err,{alertUser:true});
+    body.innerHTML=`<div class="empty" style="color:var(--red)">${esc(message)}</div>`;
+  }
 }
 
 async function savePrompt(tool,scope){
   const el=document.getElementById(`prompt-${tool}-${scope}`);
   if(!el)return;
-  const res=await fetch(`/api/prompts/${tool}`,{
-    method:'PUT',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({scope,content:el.value}),
-  });
-  const data=await res.json();
-  if(!res.ok){
-    alert(data.detail||'保存失败');
-    return;
+  try{
+    await fetchJson(`/api/prompts/${tool}`,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scope,content:el.value}),
+    });
+    await openPromptModal(tool);
+    refreshAgents({alertOnError:false});
+  }catch(err){
+    showRefreshError('保存提示词失败',err,{alertUser:true});
   }
-  await openPromptModal(tool);
-  refreshAgents();
 }
 
 function closePromptModal(){document.getElementById('prompt-modal').classList.remove('open')}
 document.getElementById('prompt-modal').addEventListener('click',e=>{if(e.target===document.getElementById('prompt-modal'))closePromptModal()});
 
 // ── 操作 ─────────────────────────────────────────────────────────────────────
+function refreshAfterMutation({boostIntervalMs=null}={}){
+  if(boostIntervalMs!==null)startDashboardRefreshBoost({intervalMs:boostIntervalMs});
+  manualRefreshDashboard();
+  refreshMcp({alertOnError:false});
+  if(document.getElementById('proc-modal').classList.contains('open'))refreshProcesses({alertOnError:false});
+  refreshAgents({alertOnError:false});
+}
+function jobBoostIntervalMs(action){
+  if(['install','update','mcp_update','mcp_update_all','pi_package_upgrade','pi_packages_upgrade','pi_web_update'].includes(action))return DASHBOARD_REFRESH_BOOST_MS;
+  if(['service_start','service_stop','pi_web_service_start','pi_web_service_stop','sync_service_start','sync_service_stop'].includes(action))return DASHBOARD_REFRESH_RESTART_MS;
+  return null;
+}
 async function runJob(action,tool,sudoPassword,version){
-  const body={action,tool:tool||null};
-  if(sudoPassword)body.sudo_password=sudoPassword;
-  if(version)body.version=version;
-  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
-  openJobModal(res.id,res.label,()=>{refreshStatus();refreshMcp();refreshProcesses();refreshAgents()});
+  try{
+    const body={action,tool:tool||null};
+    if(sudoPassword)body.sudo_password=sudoPassword;
+    if(version)body.version=version;
+    const res=await fetchJson('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const boostIntervalMs=jobBoostIntervalMs(action);
+    openJobModal(res.id,res.label,result=>refreshAfterMutation({boostIntervalMs:result?.status==='done'?boostIntervalMs:null}));
+  }catch(err){
+    showRefreshError('任务提交失败',err,{alertUser:true});
+  }
 }
 async function runMcpUpdate(name){
-  const body={action:'mcp_update',mcp:name};
-  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
-  openJobModal(res.id,res.label,()=>{refreshMcp();refreshProcesses();refreshStatus()});
+  try{
+    const body={action:'mcp_update',mcp:name};
+    const res=await fetchJson('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    openJobModal(res.id,res.label,result=>refreshAfterMutation({boostIntervalMs:result?.status==='done'?DASHBOARD_REFRESH_BOOST_MS:null}));
+  }catch(err){
+    showRefreshError('MCP 更新任务提交失败',err,{alertUser:true});
+  }
 }
 async function runPiPackageUpgrade(spec){
-  const body={action:'pi_package_upgrade',tool:'pi',package:spec};
-  const res=await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
-  openJobModal(res.id,res.label,()=>{refreshStatus();refreshMcp();refreshProcesses();refreshAgents()});
+  try{
+    const body={action:'pi_package_upgrade',tool:'pi',package:spec};
+    const res=await fetchJson('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    openJobModal(res.id,res.label,result=>refreshAfterMutation({boostIntervalMs:result?.status==='done'?jobBoostIntervalMs('pi_package_upgrade'):null}));
+  }catch(err){
+    showRefreshError('Pi 包升级任务提交失败',err,{alertUser:true});
+  }
 }
 function doSync(){runJob('sync')}
 function doMcpUpdateAll(){runJob('mcp_update_all')}
@@ -1234,7 +1586,7 @@ function openJobModal(id,label,onDone){
     const d=JSON.parse(e.data);
     if(d.heartbeat)return;
     if(d.line){const div=document.createElement('div');div.className=d.line.startsWith('ERROR')?'log-err':'';div.textContent=d.line;log.appendChild(div);log.scrollTop=log.scrollHeight}
-    if(d.done){es.close();_es=null;const fin=document.createElement('div');fin.className=d.status==='done'?'log-ok':'log-err';fin.textContent=d.status==='done'?'✓ 完成':'✗ 出错';log.appendChild(fin);log.scrollTop=log.scrollHeight;document.getElementById('modal-status').innerHTML=d.status==='done'?'<span style="color:var(--green)">✓ 完成</span>':'<span style="color:var(--red)">✗ 出错</span>';if(onDone)onDone()}
+    if(d.done){es.close();_es=null;const fin=document.createElement('div');fin.className=d.status==='done'?'log-ok':'log-err';fin.textContent=d.status==='done'?'✓ 完成':'✗ 出错';log.appendChild(fin);log.scrollTop=log.scrollHeight;document.getElementById('modal-status').innerHTML=d.status==='done'?'<span style="color:var(--green)">✓ 完成</span>':'<span style="color:var(--red)">✗ 出错</span>';if(onDone)onDone(d)}
   };
   es.onerror=()=>{es.close();_es=null;document.getElementById('modal-status').innerHTML='<span style="color:var(--red)">连接断开</span>'};
 }
@@ -1244,12 +1596,16 @@ document.getElementById('modal').addEventListener('click',e=>{if(e.target===docu
 // ── 设置弹窗 ─────────────────────────────────────────────────────────────────
 async function openSettings(){
   document.getElementById('settings-modal').classList.add('open');
-  const s=await fetch('/api/settings').then(r=>r.json());
-  document.getElementById('sudo-pw-hint').textContent=s.has_sudo_password?'✓ 已保存密码':'未设置';
-  const sel=document.getElementById('theme-select');
-  sel.value=s.theme||'light';
-  document.getElementById('web-host-input').value=s.web_host||'';
-  document.getElementById('web-host-hint').textContent=s.web_host?'✓ 当前地址: '+s.web_host:'默认 127.0.0.1，仅 Linux 服务器需要配置';
+  try{
+    const s=await fetchJson('/api/settings');
+    document.getElementById('sudo-pw-hint').textContent=s.has_sudo_password?'✓ 已保存密码':'未设置';
+    const sel=document.getElementById('theme-select');
+    sel.value=s.theme||'light';
+    document.getElementById('web-host-input').value=s.web_host||'';
+    document.getElementById('web-host-hint').textContent=s.web_host?'✓ 当前地址: '+s.web_host:'默认 127.0.0.1，仅 Linux 服务器需要配置';
+  }catch(err){
+    showRefreshError('读取设置失败',err,{alertUser:true});
+  }
 }
 function closeSettings(){document.getElementById('settings-modal').classList.remove('open')}
 document.getElementById('settings-modal').addEventListener('click',e=>{if(e.target===document.getElementById('settings-modal'))closeSettings()});
@@ -1259,51 +1615,95 @@ async function saveSudoPw(el){
   if(!pw){alert('请输入密码');return}
   el.disabled=true;el.textContent='验证中…';
   try{
-    const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sudo_password:pw})});
-    const d=await r.json();
-    if(r.ok){document.getElementById('sudo-pw-hint').textContent='✓ 已保存密码';document.getElementById('sudo-pw-input').value='';alert('sudo 密码已保存并验证')}
-    else alert('错误: '+(d.detail||'验证失败'))
+    await fetchJson('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sudo_password:pw})});
+    document.getElementById('sudo-pw-hint').textContent='✓ 已保存密码';
+    document.getElementById('sudo-pw-input').value='';
+    alert('sudo 密码已保存并验证');
+  }catch(err){
+    showRefreshError('保存 sudo 密码失败',err,{alertUser:true});
   }finally{el.disabled=false;el.textContent='保存密码'}
 }
 async function saveWebHost(){
   try{
     const host=document.getElementById('web-host-input').value.trim();
-    const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({web_host:host})});
-    if(!r.ok){const d=await r.json().catch(()=>({}));alert('保存失败: '+(d.detail||r.status));return}
+    await fetchJson('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({web_host:host})});
     document.getElementById('web-host-hint').textContent=host?'✓ 已保存，将用于页面里的 Web 访问地址':'✓ 已清空，已恢复默认地址';
-    await refreshStatus();
+    await manualRefreshDashboard();
   }catch(e){alert('保存失败: '+e.message)}
 }
 async function clearSudoPw(){
-  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear_sudo_password:true})});
-  document.getElementById('sudo-pw-hint').textContent='未设置';
+  try{
+    await fetchJson('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clear_sudo_password:true})});
+    document.getElementById('sudo-pw-hint').textContent='未设置';
+  }catch(err){
+    showRefreshError('清除 sudo 密码失败',err,{alertUser:true});
+  }
 }
 
 // ── 守护进程控制 ──────────────────────────────────────────────────────────────
-async function refreshDaemon(){
+function renderDaemonPayload(d){
+  const on=d.active==='active';
+  const starting=d.active==='activating';
+  document.getElementById('daemon-dot').className='dot '+(on||starting?'active':'inactive');
+  document.getElementById('daemon-label').textContent=d.state_label||(on?'守护运行中':starting?'守护启动中':'守护已停止');
+  const btn=document.getElementById('daemon-btn');
+  btn.textContent=on?'停止':'启动';
+  btn._on=on;
+  btn.disabled=starting;
+}
+async function fetchDaemonPayload(){return fetchJson('/api/self')}
+async function refreshDaemon({alertOnError=false}={}){
+  if(_daemonRefreshPromise)return _daemonRefreshPromise;
+  _daemonRefreshPromise=(async()=>{
+    try{
+      const payload=await fetchDaemonPayload();
+      renderDaemonPayload(payload);
+      return payload;
+    }catch(err){
+      showRefreshError('守护状态刷新失败',err,{alertUser:alertOnError});
+      return null;
+    }finally{_daemonRefreshPromise=null}
+  })();
+  return _daemonRefreshPromise;
+}
+async function refreshProcessCount({alertOnError=false}={}){
   try{
-    const d=await fetch('/api/self').then(r=>r.json());
-    const on=d.active==='active';
-    const starting=d.active==='activating';
-    document.getElementById('daemon-dot').className='dot '+(on||starting?'active':'inactive');
-    document.getElementById('daemon-label').textContent=d.state_label|| (on?'守护运行中':starting?'守护启动中':'守护已停止');
-    const btn=document.getElementById('daemon-btn');
-    btn.textContent=on?'停止':'启动';
-    btn._on=on;
-    btn.disabled=starting;
-  }catch(e){}
+    const procs=await fetchProcessList();
+    renderProcessCount(procs);
+    return procs;
+  }catch(err){
+    showRefreshError('进程计数刷新失败',err,{alertUser:alertOnError});
+    renderProcessCount([]);
+    return[];
+  }
 }
 async function toggleDaemon(){
   const b=document.getElementById('daemon-btn');
-  if(b._on){if(!confirm('停止守护进程后页面将无法访问，确认？'))return;await fetch('/api/self/stop',{method:'POST'});document.getElementById('daemon-label').textContent='停止中…'}
-  else{await fetch('/api/self/start',{method:'POST'});document.getElementById('daemon-label').textContent='启动中…'}
-  setTimeout(refreshDaemon,1500);
+  try{
+    if(b._on){
+      if(!confirm('停止守护进程后页面将无法访问，确认？'))return;
+      await fetchJson('/api/self/stop',{method:'POST'});
+      document.getElementById('daemon-label').textContent='停止中…';
+    }else{
+      await fetchJson('/api/self/start',{method:'POST'});
+      document.getElementById('daemon-label').textContent='启动中…';
+    }
+    startDashboardRefreshBoost({intervalMs:DASHBOARD_REFRESH_RESTART_MS});
+    setTimeout(()=>{manualRefreshDashboard()},1500);
+  }catch(err){
+    showRefreshError('守护进程操作失败',err,{alertUser:true});
+  }
 }
 async function restartDaemon(){
   if(!confirm('重启守护进程？页面约3秒后恢复。'))return;
   document.getElementById('daemon-label').textContent='重启中…';
-  await fetch('/api/self/restart',{method:'POST'});
-  setTimeout(()=>{refreshDaemon();refreshStatus()},3000);
+  try{
+    await fetchJson('/api/self/restart',{method:'POST'});
+    startDashboardRefreshBoost({intervalMs:DASHBOARD_REFRESH_RESTART_MS});
+    setTimeout(()=>{manualRefreshDashboard()},3000);
+  }catch(err){
+    showRefreshError('守护进程重启失败',err,{alertUser:true});
+  }
 }
 
 // ── toggle 点击 ───────────────────────────────────────────────────────────────
@@ -1311,21 +1711,12 @@ async function restartDaemon(){
 
 // ── 初始化 ────────────────────────────────────────────────────────────────────
 (async()=>{
-  const s=await fetch('/api/settings').then(r=>r.json()).catch(()=>({theme:'light'}));
+  const s=await fetchJson('/api/settings').catch(()=>({theme:'light'}));
   applyTheme(localStorage.getItem('theme')||s.theme||'light');
-  refreshDaemon();
-  refreshStatus();
-  refreshMcp();
-  refreshAgents();
-  // 进程计数后台静默刷新（不打开弹窗）
-  fetch('/api/processes').then(r=>r.json()).then(p=>{const b=document.getElementById('proc-count');if(b&&p.length)b.textContent=`(${p.length})`;}).catch(()=>{});
-  setInterval(()=>{
-    refreshStatus();refreshDaemon();
-    fetch('/api/processes').then(r=>r.json()).then(p=>{const b=document.getElementById('proc-count');if(b)b.textContent=p.length?`(${p.length})`:'';}).catch(()=>{});
-    // 只刷新数据，不重置弹窗筛选状态
-    if(_openAgentKey&&document.getElementById('agent-detail-modal').classList.contains('open'))
-      refreshAgents();
-  },8000);
+  await runDashboardRefresh();
+  refreshMcp({alertOnError:false});
+  refreshAgents({alertOnError:false});
+  scheduleDashboardRefresh(DASHBOARD_REFRESH_DEFAULT_MS);
 })();
 
 // ── 工具详情弹窗 ──────────────────────────────────────────────────────────────
@@ -1465,10 +1856,13 @@ function filterSkillTable(q){
 }
 async function removeSkill(path,agentKey){
   if(!confirm(`确认移除 skill: ${path.split('/').pop()}？此操作会删除文件。`))return;
-  const r=await fetch('/api/skills?path='+encodeURIComponent(path),{method:'DELETE'});
-  if(!r.ok){alert('移除失败: '+(await r.json().catch(()=>({detail:'未知错误'}))).detail);return}
-  await refreshAgents();
-  openAgentModal(agentKey,'skills');
+  try{
+    await fetchJson('/api/skills?path='+encodeURIComponent(path),{method:'DELETE'});
+    await refreshAgents({alertOnError:false});
+    openAgentModal(agentKey,'skills');
+  }catch(err){
+    showRefreshError('移除 skill 失败',err,{alertUser:true});
+  }
 }
 function closeAgentModal(){_openAgentKey=null;document.getElementById('agent-detail-modal').classList.remove('open')}
 document.getElementById('agent-detail-modal').addEventListener('click',e=>{if(e.target===document.getElementById('agent-detail-modal'))closeAgentModal()});

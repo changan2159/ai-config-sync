@@ -15,11 +15,24 @@ def test_all_tool_scripts_exist() -> None:
         assert (web_server.REPO_ROOT / meta["script"]).exists()
 
 
+def test_read_through_cache_reuses_recent_value() -> None:
+    cache: dict[str, tuple[float, str | None]] = {}
+    calls = {"count": 0}
+
+    def resolver() -> str:
+        calls["count"] += 1
+        return "cached"
+
+    assert web_server._read_through_cache(cache, "status", resolver, ttl_seconds=60) == "cached"
+    assert web_server._read_through_cache(cache, "status", resolver, ttl_seconds=60) == "cached"
+    assert calls["count"] == 1
+
+
 def test_get_tool_status_reports_claude_runtime_without_service_controls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(web_server, "_cmd_version", lambda cmd: "2.1.183")
-    monkeypatch.setattr(web_server, "_npm_latest", lambda package: "2.1.193")
+    monkeypatch.setattr(web_server, "_cached_cmd_version", lambda cmd: "2.1.183")
+    monkeypatch.setattr(web_server, "_cached_npm_latest", lambda package: "2.1.193")
     monkeypatch.setattr(web_server, "_tool_process_status", lambda tool: "active")
     monkeypatch.setattr(web_server, "_service_status", lambda name: "inactive")
 
@@ -113,9 +126,8 @@ def test_get_tool_status_applies_saved_web_host_override_to_pi_web_panel_data(
 ) -> None:
     monkeypatch.setattr(web_server, "_tool_process_status", lambda tool: "active")
     monkeypatch.setattr(web_server, "_load_settings", lambda: {"web_host": "192.168.1.100"})
-    monkeypatch.setattr(web_server, "_npm_latest", lambda package: "0.80.2")
-    monkeypatch.setattr(web_server, "_github_latest_redirect", lambda url: "1.21.3")
-    monkeypatch.setattr(web_server, "_cached_npm_latest", lambda package: None)
+    monkeypatch.setattr(web_server, "_cached_npm_latest", lambda package: "0.80.2" if package == "@earendil-works/pi-coding-agent" else None)
+    monkeypatch.setattr(web_server, "_cached_github_latest_redirect", lambda url: "1.21.3")
     monkeypatch.setattr(
         web_server,
         "_service_web_details",
@@ -187,9 +199,12 @@ def test_get_tool_status_reports_pi_web_and_package_inventory(
 ) -> None:
     monkeypatch.setattr(web_server, "_tool_process_status", lambda tool: "active")
     monkeypatch.setattr(web_server, "_load_settings", lambda: {})
-    monkeypatch.setattr(web_server, "_npm_latest", lambda package: "0.80.2")
-    monkeypatch.setattr(web_server, "_github_latest_redirect", lambda url: "1.21.3")
-    monkeypatch.setattr(web_server, "_cached_npm_latest", lambda package: {"pi-subagents": "0.31.5"}.get(package))
+    monkeypatch.setattr(
+        web_server,
+        "_cached_npm_latest",
+        lambda package: "0.80.2" if package == "@earendil-works/pi-coding-agent" else {"pi-subagents": "0.31.5"}.get(package),
+    )
+    monkeypatch.setattr(web_server, "_cached_github_latest_redirect", lambda url: "1.21.3")
     monkeypatch.setattr(
         web_server,
         "_service_web_details",
@@ -272,8 +287,8 @@ def test_paseo_status_uses_fallback_launcher_when_symlink_is_missing(
         "_command_location",
         lambda _cmd: {"launcher_path": None, "resolved_path": None, "install_root": None},
     )
-    monkeypatch.setattr(web_server, "_cmd_version", lambda _cmd: None)
-    monkeypatch.setattr(web_server, "_npm_latest", lambda _pkg: "0.1.101")
+    monkeypatch.setattr(web_server, "_cached_cmd_version", lambda _cmd: None)
+    monkeypatch.setattr(web_server, "_cached_npm_latest", lambda _pkg: "0.1.101")
     monkeypatch.setattr(web_server, "_read_paseo_server_version", lambda _root: "0.1.101")
     monkeypatch.setattr(web_server, "_read_paseo_desktop_client_version", lambda _path: "0.1.100")
 

@@ -110,6 +110,9 @@ class Job:
 
 _jobs: dict[str, Job] = {}
 _NPM_LATEST_CACHE: dict[str, tuple[float, str | None]] = {}
+_CMD_VERSION_CACHE: dict[str, tuple[float, str | None]] = {}
+_GITHUB_LATEST_CACHE: dict[str, tuple[float, str | None]] = {}
+_GITHUB_REDIRECT_CACHE: dict[str, tuple[float, str | None]] = {}
 
 
 def _run_job(job: Job, fn: Any) -> None:
@@ -141,6 +144,22 @@ def _run(args: list[str], *, cwd: Path | None = None, timeout: int = 30,
                           encoding="utf-8", timeout=timeout, input=input)
 
 
+def _read_through_cache(
+    cache: dict[str, tuple[float, str | None]],
+    key: str,
+    resolver: Any,
+    *,
+    ttl_seconds: int,
+) -> str | None:
+    now = time.monotonic()
+    cached = cache.get(key)
+    if cached and now - cached[0] < ttl_seconds:
+        return cached[1]
+    value = resolver()
+    cache[key] = (now, value)
+    return value
+
+
 def _npm_latest(package: str) -> str | None:
     npm = shutil.which("npm")
     if not npm:
@@ -154,13 +173,12 @@ def _npm_latest(package: str) -> str | None:
 
 
 def _cached_npm_latest(package: str, *, ttl_seconds: int = 1800) -> str | None:
-    now = time.monotonic()
-    cached = _NPM_LATEST_CACHE.get(package)
-    if cached and now - cached[0] < ttl_seconds:
-        return cached[1]
-    latest = _npm_latest(package)
-    _NPM_LATEST_CACHE[package] = (now, latest)
-    return latest
+    return _read_through_cache(
+        _NPM_LATEST_CACHE,
+        package,
+        lambda: _npm_latest(package),
+        ttl_seconds=ttl_seconds,
+    )
 
 
 def _github_latest(repo: str) -> str | None:
@@ -189,6 +207,24 @@ def _github_latest_redirect(url: str) -> str | None:
         return None
 
 
+def _cached_github_latest(repo: str, *, ttl_seconds: int = 1800) -> str | None:
+    return _read_through_cache(
+        _GITHUB_LATEST_CACHE,
+        repo,
+        lambda: _github_latest(repo),
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def _cached_github_latest_redirect(url: str, *, ttl_seconds: int = 1800) -> str | None:
+    return _read_through_cache(
+        _GITHUB_REDIRECT_CACHE,
+        url,
+        lambda: _github_latest_redirect(url),
+        ttl_seconds=ttl_seconds,
+    )
+
+
 def _cmd_version(cmd: str) -> str | None:
     path = shutil.which(cmd)
     if not path:
@@ -200,6 +236,15 @@ def _cmd_version(cmd: str) -> str | None:
         return m.group(1) if m else (out[:30] or None)
     except Exception:
         return None
+
+
+def _cached_cmd_version(cmd: str, *, ttl_seconds: int = 5) -> str | None:
+    return _read_through_cache(
+        _CMD_VERSION_CACHE,
+        cmd,
+        lambda: _cmd_version(cmd),
+        ttl_seconds=ttl_seconds,
+    )
 
 
 def _service_status(name: str) -> str:
@@ -426,7 +471,7 @@ def _get_mcp_component_details(name: str) -> dict[str, Any]:
         package_name = str(meta["package"])
         version_path = REPO_ROOT / meta["version_path"]
         current_version = _read_dependency_version(version_path, package_name)
-        latest_version = _latest_npm_version(package_name)
+        latest_version = _cached_npm_latest(package_name)
     elif meta["kind"] == "npm-deps":
         version_path = REPO_ROOT / meta["version_path"]
         version_details = {
@@ -434,8 +479,8 @@ def _get_mcp_component_details(name: str) -> dict[str, Any]:
             "zod": _read_dependency_version(version_path, "zod"),
         }
         latest_details = {
-            "sdk": _latest_npm_version("@modelcontextprotocol/sdk"),
-            "zod": _latest_npm_version("zod"),
+            "sdk": _cached_npm_latest("@modelcontextprotocol/sdk"),
+            "zod": _cached_npm_latest("zod"),
         }
         current_version = _format_dependency_versions(version_details)
         latest_version = _format_dependency_versions(latest_details)
@@ -745,7 +790,7 @@ def _paseo_status() -> dict[str, Any]:
             "resolved_path": str(resolved_launcher) if resolved_launcher else None,
             "install_root": str(install_root) if install_root else None,
         }
-    installed = _cmd_version("paseo")
+    installed = _cached_cmd_version("paseo")
     if installed is None and launcher is not None:
         try:
             r = _run([str(launcher), "--version"], timeout=10)
@@ -754,7 +799,7 @@ def _paseo_status() -> dict[str, Any]:
             installed = m.group(1) if m else (out[:30] or None)
         except Exception:
             pass
-    latest = _npm_latest("@getpaseo/cli")
+    latest = _cached_npm_latest("@getpaseo/cli")
     payload: dict[str, Any] = {}
     if launcher is not None:
         try:
@@ -1531,7 +1576,7 @@ def _get_tool_status(key: str) -> dict[str, Any]:
             from ai_config_sync.opencode_manager import _latest_opencode_version
             latest = _latest_opencode_version()
         except Exception:
-            latest = _github_latest(meta["github"])
+            latest = _cached_github_latest(meta["github"])
         service_manageable = True
         web_url = web.get("url")
         web_port = web.get("port")
@@ -1553,7 +1598,7 @@ def _get_tool_status(key: str) -> dict[str, Any]:
                 host_flags=("--host", "--hostname"),
                 port_flags=("--port",),
             ) if web_service_name else {}
-            latest_pi_web = _github_latest_redirect("https://github.com/Epsilondelta-ai/pi-web/releases/latest")
+            latest_pi_web = _cached_github_latest_redirect("https://github.com/Epsilondelta-ai/pi-web/releases/latest")
             if latest_pi_web and not latest_pi_web.startswith("v"):
                 latest_pi_web = f"v{latest_pi_web}"
             pi_web["latest_version"] = latest_pi_web
@@ -1578,8 +1623,8 @@ def _get_tool_status(key: str) -> dict[str, Any]:
         except Exception:
             pass
         if installed is None:
-            installed = _cmd_version(meta["cmd"])
-        latest = _npm_latest(meta["npm"])
+            installed = _cached_cmd_version(meta["cmd"])
+        latest = _cached_npm_latest(meta["npm"])
         status = _tool_process_status("pi")
         service_manageable = bool(pi_web.get("launcher_exists")) if pi_web else False
         service_status = pi_web.get("service_active", "inactive") if pi_web else "inactive"
@@ -1590,8 +1635,8 @@ def _get_tool_status(key: str) -> dict[str, Any]:
         web_port = pi_web.get("port") if pi_web else None
         web_host = pi_web.get("hostname") if pi_web else None
     else:
-        installed = _cmd_version(meta["cmd"])
-        latest = _npm_latest(meta["npm"])
+        installed = _cached_cmd_version(meta["cmd"])
+        latest = _cached_npm_latest(meta["npm"])
         status = _tool_process_status(key)
         if key == "claude":
             service_status = _service_status("claude-code.service")
