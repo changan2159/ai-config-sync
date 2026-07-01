@@ -10,6 +10,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@colbymchenry/codegraph": "1.1.2"
+    "@colbymchenry/codegraph": "1.1.6"
   }
 }

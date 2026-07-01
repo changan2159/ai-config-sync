@@ -6,6 +6,7 @@ import pwd
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,18 @@ from ai_config_sync.errors import SyncError
 
 PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent"
 DEFAULT_PI_INSTALL_PREFIX = ".local"
+NPM_INSTALL_MAX_ATTEMPTS = 5
+NPM_INSTALL_TIMEOUT_SECONDS = 300
+NPM_FETCH_ARGS = (
+    "--fetch-retries",
+    "5",
+    "--fetch-retry-mintimeout",
+    "2000",
+    "--fetch-retry-maxtimeout",
+    "30000",
+    "--fetch-timeout",
+    "300000",
+)
 
 
 @dataclass(frozen=True)
@@ -45,17 +58,7 @@ def install_pi(home: Path | None = None, version: str | None = None) -> dict[str
     paths = default_pi_paths(home)
     _require_non_root_runtime_install(paths)
     package_spec = _package_spec(version)
-    _run_command(
-        [
-            "npm",
-            "install",
-            "-g",
-            "--ignore-scripts",
-            "--prefix",
-            str(paths.prefix_dir),
-            package_spec,
-        ]
-    )
+    _install_pi_package(paths.prefix_dir, package_spec)
     version_output = _run_command([str(paths.launcher_path), "--version"]).stdout.strip()
     installed_version = _parse_installed_version(version_output)
     expected_version = version.strip() if version is not None else None
@@ -133,7 +136,78 @@ def _require_non_root_runtime_install(paths: PiPaths) -> None:
         )
 
 
-def _run_command(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _install_pi_package(prefix_dir: Path, package_spec: str) -> None:
+    install_args = [
+        "npm",
+        "install",
+        "-g",
+        "--ignore-scripts",
+        "--prefix",
+        str(prefix_dir),
+        package_spec,
+        *NPM_FETCH_ARGS,
+    ]
+    last_error: SyncError | None = None
+    for attempt in range(1, NPM_INSTALL_MAX_ATTEMPTS + 1):
+        _cleanup_stale_npm_package_dirs(prefix_dir, PI_PACKAGE_NAME)
+        try:
+            _run_command(install_args, timeout=NPM_INSTALL_TIMEOUT_SECONDS)
+            return
+        except SyncError as exc:
+            last_error = exc
+            if attempt >= NPM_INSTALL_MAX_ATTEMPTS or not _should_retry_npm_install(exc):
+                raise
+            time.sleep(min(attempt * 2, 10))
+    if last_error is not None:
+        raise last_error
+
+
+def _cleanup_stale_npm_package_dirs(prefix_dir: Path, package_name: str) -> list[str]:
+    package_parent, package_leaf = _npm_package_parent_and_leaf(prefix_dir, package_name)
+    removed: list[str] = []
+    if not package_parent.is_dir():
+        return removed
+    for stale_path in sorted(package_parent.glob(f".{package_leaf}-*")):
+        if stale_path.name == package_leaf:
+            continue
+        if stale_path.is_dir() and not stale_path.is_symlink():
+            shutil.rmtree(stale_path, ignore_errors=True)
+            removed.append(stale_path.name)
+        elif stale_path.exists() or stale_path.is_symlink():
+            stale_path.unlink(missing_ok=True)
+            removed.append(stale_path.name)
+    return removed
+
+
+def _npm_package_parent_and_leaf(prefix_dir: Path, package_name: str) -> tuple[Path, str]:
+    package_root = prefix_dir / "lib" / "node_modules"
+    if package_name.startswith("@") and "/" in package_name:
+        scope, name = package_name.split("/", 1)
+        return package_root / scope, name
+    return package_root, package_name
+
+
+def _should_retry_npm_install(error: SyncError) -> bool:
+    message = str(error).lower()
+    retry_markers = (
+        "err_socket_timeout",
+        "socket timeout",
+        "econnreset",
+        "etimedout",
+        "network",
+        "invalid response body",
+        "enotempty",
+        "directory not empty",
+    )
+    return any(marker in message for marker in retry_markers)
+
+
+def _run_command(
+    args: list[str],
+    *,
+    check: bool = True,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     if shutil.which(args[0]) is None:
         raise SyncError(f"Required command not found: {args[0]}")
     try:
@@ -143,7 +217,10 @@ def _run_command(args: list[str], *, check: bool = True) -> subprocess.Completed
             text=True,
             encoding="utf-8",
             check=check,
+            timeout=timeout,
         )
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.strip() or exc.stdout.strip() or "unknown error"
         raise SyncError(f"Command failed ({' '.join(args)}): {detail}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SyncError(f"Command timed out after {timeout:.0f}s ({' '.join(args)})") from exc

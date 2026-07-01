@@ -238,7 +238,7 @@ Script entrypoints:
 - Claude prompt is composed from the shared core plus the Claude overlay, then written to `/home/admin101/.claude/CLAUDE.md`
 - OpenCode prompt is composed from the shared core plus the OpenCode overlay, then written to `/home/admin101/.config/opencode/AGENTS.md`
 - Pi prompt is composed from the shared core plus the Pi overlay, then written to `/home/admin101/.pi/agent/AGENTS.md`
-- Claude should use the native user-level install under `/home/admin101/.local/bin/claude`; avoid keeping a parallel global npm install because `claude update` warns on multi-install drift and the native updater already manages versions under `/home/admin101/.local/share/claude/versions/`
+- Claude is managed under the user prefix `/home/admin101/.local`; `scripts/claude/update-claude.sh` installs `@anthropic-ai/claude-code` into that prefix directly because the native self-updater proved unreliable on this host
 - `scripts/paseo/update-paseo.sh` reuses the current Paseo npm install prefix, updates `@getpaseo/cli`, backs up `~/.paseo/config.json` when present, and restarts the local daemon from `PASEO_HOME` or `~/.paseo` while reusing the current listen/relay mode when status data is available
 - `scripts/codex/update-codex.sh` reuses the current Codex npm install prefix and escalates through `sudo` automatically when the existing global prefix is not user-writable
 - `scripts/claude/update-claude.sh` also pins VS Code's `claudeCode.claudeProcessWrapper` setting to `/home/admin101/.local/bin/claude` so the extension can launch Claude even when the editor process does not inherit `~/.local/bin` on `PATH`
