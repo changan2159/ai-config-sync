@@ -716,7 +716,7 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
         "targets": {
             "codex": {
                 "configPath": "${HOME}/.codex/config.toml",
-                "skillsDir": "${HOME}/.codex/skills-shared",
+                "skillsDir": "${HOME}/.codex/skills",
                 "globalPromptPath": "${HOME}/.codex/AGENTS.md",
                 "globalPromptAppendPath": "${REPO_ROOT}/prompts/codex-global-prompt.md",
             },
@@ -768,12 +768,14 @@ def test_load_sync_config_expands_repo_and_home_placeholders(tmp_path: Path, mon
 
 def test_repo_shared_config_includes_expected_managed_pi_packages() -> None:
     repo_root = Path(__file__).resolve().parents[1]
+    home = Path.home()
     config = load_sync_config(repo_root / "shared-ai-config.json")
 
     assert config.codex is not None
     assert config.codex.skill_roots == (
         sync_module.SkillRootConfig(path=repo_root / "skills" / "codex", prefix="", exclude=()),
     )
+    assert config.codex.skills_dir == home / ".codex" / "skills"
     assert config.skill_roots == (
         sync_module.SkillRootConfig(path=repo_root / "skills" / "shared", prefix="", exclude=()),
     )
@@ -962,6 +964,73 @@ def test_sync_clients_rejects_include_names_missing_from_all_roots(tmp_path: Pat
     )
 
     with pytest.raises(SyncError, match="missing-skill"):
+        sync_clients(load_sync_config(config_path), state_path)
+
+
+def test_sync_clients_replaces_existing_managed_codex_skill_directories_with_symlinks(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    write_skill(shared_root, "beta", "Beta skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    codex_config = tmp_path / "codex" / "config.toml"
+    codex_skills = tmp_path / "codex" / "skills"
+    managed_alpha = codex_skills / "alpha"
+    codex_config.parent.mkdir(parents=True)
+    codex_skills.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+    managed_alpha.mkdir()
+    (managed_alpha / "SKILL.md").write_text("stale managed copy\n", encoding="utf-8")
+    (codex_skills / ".ai-config-sync-managed.json").write_text(json.dumps(["alpha"]) + "\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(codex_config),
+                "skillsDir": str(codex_skills),
+            },
+        },
+        servers={},
+    )
+
+    result = sync_clients(load_sync_config(config_path), state_path)
+
+    assert result["targets"]["codex"]["skills"]["linked"] == ["alpha", "beta"]
+    assert managed_alpha.is_symlink()
+    assert managed_alpha.resolve() == (shared_root / "alpha").resolve()
+    assert (codex_skills / "beta").is_symlink()
+    assert (codex_skills / "beta").resolve() == (shared_root / "beta").resolve()
+
+
+def test_sync_clients_rejects_unmanaged_codex_skill_directories(tmp_path: Path) -> None:
+    shared_root = tmp_path / "skills"
+    write_skill(shared_root, "alpha", "Alpha skill")
+    config_path = tmp_path / "shared-ai-config.json"
+    state_path = tmp_path / "state" / "sync-state.json"
+    codex_config = tmp_path / "codex" / "config.toml"
+    codex_skills = tmp_path / "codex" / "skills"
+    unmanaged_alpha = codex_skills / "alpha"
+    codex_config.parent.mkdir(parents=True)
+    codex_skills.mkdir(parents=True)
+    codex_config.write_text('model = "gpt-5"\n', encoding="utf-8")
+    unmanaged_alpha.mkdir()
+    (unmanaged_alpha / "SKILL.md").write_text("manual copy\n", encoding="utf-8")
+
+    write_config(
+        config_path,
+        skill_roots=[{"path": str(shared_root)}],
+        targets={
+            "codex": {
+                "configPath": str(codex_config),
+                "skillsDir": str(codex_skills),
+            },
+        },
+        servers={},
+    )
+
+    with pytest.raises(SyncError, match="Refusing to overwrite non-symlink skill path"):
         sync_clients(load_sync_config(config_path), state_path)
 
 

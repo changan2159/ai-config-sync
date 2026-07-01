@@ -34,7 +34,7 @@
   "targets": {
     "codex": {
       "configPath": "${HOME}/.codex/config.toml",
-      "skillsDir": "${HOME}/.codex/skills-shared",
+      "skillsDir": "${HOME}/.codex/skills",
       "skillRoots": [
         {
           "path": "${REPO_ROOT}/skills/codex"

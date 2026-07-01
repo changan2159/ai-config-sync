@@ -6,7 +6,7 @@ This repository is the source of truth for cross-client prompt overlays, shared 
 
 ### Codex
 
-- Shared skills are synced from `skills/shared/` as repository-managed skill directories.
+- Shared skills are synced from `skills/shared/` as repository-managed skill directories into Codex's discovered user skill root `~/.codex/skills`.
 - Codex-only repo skills live under `skills/codex/` and are added through Codex target `skillRoots`.
 - Prefer the shared routing defaults in `prompts/shared-global-prompt.md` and the client-specific additions in `prompts/codex-global-prompt.md`.
 - When a narrower Codex-only capability is needed, follow the prompt overlay and native Codex tool surface for that session.

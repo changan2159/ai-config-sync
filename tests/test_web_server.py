@@ -846,7 +846,7 @@ def test_get_agents_info_exposes_shared_and_target_skill_counts(monkeypatch: pyt
         skill_roots=(SimpleNamespace(path=Path("/repo/skills/shared")),),
         codex=SimpleNamespace(
             config_path=Path("/home/test/.codex/config.toml"),
-            skills_dir=Path("/home/test/.codex/skills-shared"),
+            skills_dir=Path("/home/test/.codex/skills"),
             skill_roots=(SimpleNamespace(path=Path("/repo/skills/codex")),),
             mcp_servers=(),
             global_prompt_path=Path("/home/test/.codex/AGENTS.md"),

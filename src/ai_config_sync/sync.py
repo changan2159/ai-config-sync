@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -848,6 +849,8 @@ def plan_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_nam
         if path.exists() or path.is_symlink():
             if path.is_symlink():
                 paths_to_remove.append(path)
+            elif path.is_dir() and skill.name in managed_names:
+                paths_to_remove.append(path)
             else:
                 raise SyncError(f"Refusing to overwrite non-symlink skill path: {path}")
         symlinks_to_create.append((path, skill.source_dir))
@@ -864,7 +867,10 @@ def plan_skill_links(target_dir: Path, skills: list[ResolvedSkill], previous_nam
 def apply_skill_link_plan(plan: SkillLinkPlan) -> dict[str, list[str]]:
     plan.target_dir.mkdir(parents=True, exist_ok=True)
     for path in plan.paths_to_remove:
-        path.unlink(missing_ok=True)
+        if path.is_symlink() or path.is_file():
+            path.unlink(missing_ok=True)
+        elif path.is_dir():
+            shutil.rmtree(path)
     for path, source_dir in plan.symlinks_to_create:
         path.symlink_to(source_dir, target_is_directory=True)
     _write_skill_manifest(plan.target_dir, list(plan.linked))
